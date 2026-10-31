@@ -2,6 +2,7 @@
   "name": "nucmap",
   "version": "0.1.2",
   "description": "NucMap — Self-Hosted Attack Surface Management (ASM) & Vulnerability Scanner orchestrating Nmap, ProjectDiscovery Nuclei, and Nmap Vulscan with Drift Detection",
+  "tagline": "Imagined by a human and created by AI",
   "main": "src/server.js",
   "repository": {
     "type": "git",

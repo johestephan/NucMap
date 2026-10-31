@@ -1,6 +1,9 @@
 # NucMap
 
+> *Imagined by a human and created by AI*
+
 [![Version](https://img.shields.io/badge/version-0.1.2-06b6d4?style=flat-square)](https://github.com/johestephan/NucMap/releases)
+[![Imagined by a human and created by AI](https://img.shields.io/badge/Imagined_by_a_human-created_by_AI-a855f7?style=flat-square)](#)
 [![License: MIT](https://img.shields.io/badge/License-MIT-emerald?style=flat-square)](LICENSE)
 [![Proxmox VE LXC](https://img.shields.io/badge/Proxmox_VE-LXC_Helper_Script-E57000?style=flat-square&logo=proxmox)](proxmox/nucmap.sh)
 [![Docker](https://img.shields.io/badge/Docker-Supported-2496ED?style=flat-square&logo=docker)](Dockerfile)
@@ -224,6 +227,7 @@ NucMap/
 
 ---
 
-## 📄 License
+## 📄 License & Attribution
 
-Distributed under the **MIT License**. See [`LICENSE`](LICENSE) for full details.
+* **Concept & Creation**: Imagined by a human and created by AI.
+* **License**: Distributed under the **MIT License**. See [`LICENSE`](LICENSE) for full details.
