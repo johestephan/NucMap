@@ -1,6 +1,7 @@
 const state = {
   activeTab: 'assets',
   assets: [],
+  assetSort: { column: 'target', order: 'asc' },
   selectedAssetTargets: new Set(),
   discoveredHosts: [],
   selectedDiscoveredIps: new Set(),
@@ -323,6 +324,9 @@ function populateAssetFilterDropdowns() {
 }
 
 function setAssetSort(column) {
+  if (!state.assetSort) {
+    state.assetSort = { column: 'target', order: 'asc' };
+  }
   if (state.assetSort.column === column) {
     state.assetSort.order = state.assetSort.order === 'asc' ? 'desc' : 'asc';
   } else {
@@ -334,6 +338,9 @@ function setAssetSort(column) {
 }
 
 function updateSortHeaderIndicators() {
+  if (!state.assetSort) {
+    state.assetSort = { column: 'target', order: 'asc' };
+  }
   const cols = ['target', 'vendor', 'ports', 'vulns', 'last_scanned'];
   for (const c of cols) {
     const iconEl = document.getElementById(`sort-icon-${c}`);
@@ -447,7 +454,10 @@ function renderAssetsTable() {
   });
 
   // Apply sorting
-  const { column, order } = state.assetSort;
+  if (!state.assetSort) {
+    state.assetSort = { column: 'target', order: 'asc' };
+  }
+  const { column = 'target', order = 'asc' } = state.assetSort;
   filtered.sort((a, b) => {
     let cmp = 0;
     if (column === 'target') {
@@ -455,6 +465,10 @@ function renderAssetsTable() {
       const numB = parseIpv4Numeric(b.target);
       if (numA !== null && numB !== null) {
         cmp = numA - numB;
+      } else if (numA !== null) {
+        cmp = -1;
+      } else if (numB !== null) {
+        cmp = 1;
       } else {
         cmp = (a.target || '').localeCompare(b.target || '');
       }

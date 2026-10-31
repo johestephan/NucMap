@@ -3,22 +3,72 @@ const path = require('path');
 const Database = require('better-sqlite3');
 
 function resolveDbPath() {
+  let targetPath;
   if (process.env.DB_PATH) {
     const dir = path.dirname(process.env.DB_PATH);
     fs.mkdirSync(dir, { recursive: true });
-    return process.env.DB_PATH;
+    targetPath = process.env.DB_PATH;
+  } else {
+    const defaultDir = '/var/lib/nucmap';
+    try {
+      fs.mkdirSync(defaultDir, { recursive: true });
+      fs.accessSync(defaultDir, fs.constants.W_OK);
+      targetPath = path.join(defaultDir, 'nucmap.db');
+    } catch (err) {
+      const fallbackDir = path.join(__dirname, '..', 'data');
+      fs.mkdirSync(fallbackDir, { recursive: true });
+      targetPath = path.join(fallbackDir, 'nucmap.db');
+    }
   }
 
-  const defaultDir = '/var/lib/nucmap';
+  // Auto-recovery / migration from legacy paths if target DB has no data
   try {
-    fs.mkdirSync(defaultDir, { recursive: true });
-    fs.accessSync(defaultDir, fs.constants.W_OK);
-    return path.join(defaultDir, 'nucmap.db');
+    let targetHasData = false;
+    if (fs.existsSync(targetPath) && fs.statSync(targetPath).size > 2048) {
+      try {
+        const testDb = new Database(targetPath, { readonly: true });
+        const tbl = testDb.prepare("SELECT count(*) as c FROM sqlite_master WHERE type='table' AND name='assets'").get();
+        if (tbl && tbl.c > 0) {
+          const row = testDb.prepare("SELECT count(*) as c FROM assets").get();
+          if (row && row.c > 0) targetHasData = true;
+        }
+        testDb.close();
+      } catch (_) {}
+    }
+
+    if (!targetHasData) {
+      const legacyCandidates = [
+        path.join(__dirname, '..', 'data', 'nucmap.db'),
+        '/opt/nucmap/data/nucmap.db',
+        '/var/lib/sechost/sechost.db',
+        '/opt/sechost-manager/data/sechost.db',
+        '/data/nucmap.db'
+      ];
+      for (const legacy of legacyCandidates) {
+        if (legacy !== targetPath && fs.existsSync(legacy) && fs.statSync(legacy).size > 2048) {
+          try {
+            const legDb = new Database(legacy, { readonly: true });
+            const lTbl = legDb.prepare("SELECT count(*) as c FROM sqlite_master WHERE type='table' AND name='assets'").get();
+            let lHasAssets = false;
+            if (lTbl && lTbl.c > 0) {
+              const lRow = legDb.prepare("SELECT count(*) as c FROM assets").get();
+              if (lRow && lRow.c > 0) lHasAssets = true;
+            }
+            legDb.close();
+            if (lHasAssets) {
+              console.log(`[DB] Auto-migrating populated database from legacy path: ${legacy} -> ${targetPath}`);
+              fs.copyFileSync(legacy, targetPath);
+              break;
+            }
+          } catch (_) {}
+        }
+      }
+    }
   } catch (err) {
-    const fallbackDir = path.join(__dirname, '..', 'data');
-    fs.mkdirSync(fallbackDir, { recursive: true });
-    return path.join(fallbackDir, 'nucmap.db');
+    console.warn('[DB] Legacy migration check notice:', err.message);
   }
+
+  return targetPath;
 }
 
 const dbPath = resolveDbPath();
