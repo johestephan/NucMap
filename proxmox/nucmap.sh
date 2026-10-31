@@ -185,18 +185,17 @@ if pct status "${CT_ID}" >/dev/null 2>&1; then
   fi
 fi
 
-# 1. Locate or download Debian 12 (default) LXC template
-# Note: Debian 12 (Bookworm) is used by default because PVE 8.x's PVE::LXC::Setup::Debian
-# rejects Debian 13 during LXC startup (sequence 7) on nodes with older pve-container packages.
-msg_info "Updating Proxmox LXC appliance template catalog (pveam update)"
+# 1. Locate or download Debian LXC template matching the Proxmox host CPU architecture (amd64 / arm64)
+HOST_ARCH="$(dpkg --print-architecture 2>/dev/null || echo amd64)"
+msg_info "Updating Proxmox LXC appliance template catalog (pveam update, arch: ${HOST_ARCH})"
 pveam update >/dev/null 2>&1 || true
 
-DEBIAN_TPL="$(pveam available -section system | awk '{print $2}' | grep -E "^debian-${CT_DEBIAN_VER}-standard_" | sort -V | tail -n 1 || true)"
+DEBIAN_TPL="$(pveam available -section system | awk '{print $2}' | grep -E "^debian-${CT_DEBIAN_VER}-standard_.*_${HOST_ARCH}\.tar\." | sort -V | tail -n 1 || true)"
 if [[ -z "${DEBIAN_TPL}" ]]; then
-  DEBIAN_TPL="$(pveam available -section system | awk '{print $2}' | grep -E '^debian-12-standard_' | sort -V | tail -n 1 || true)"
+  DEBIAN_TPL="$(pveam available -section system | awk '{print $2}' | grep -E "^debian-12-standard_.*_${HOST_ARCH}\.tar\." | sort -V | tail -n 1 || true)"
 fi
 if [[ -z "${DEBIAN_TPL}" ]]; then
-  msg_err "Could not find a Debian standard template in pveam."
+  msg_err "Could not find a Debian standard template for architecture '${HOST_ARCH}' in pveam."
 fi
 
 if ! pveam list "${TEMPLATE_STORAGE}" 2>/dev/null | grep -q "${DEBIAN_TPL}"; then
@@ -214,7 +213,7 @@ fi
 # 3. Create LXC Container (without --start 1 so we can start and verify cleanly)
 msg_info "Creating LXC Container ${CT_ID} (${CT_HOSTNAME})"
 pct create "${CT_ID}" "${TEMPLATE_STORAGE}:vztmpl/${DEBIAN_TPL}" \
-  --arch amd64 \
+  --arch "${HOST_ARCH}" \
   --ostype debian \
   --hostname "${CT_HOSTNAME}" \
   --cores "${CT_CORES}" \
