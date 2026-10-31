@@ -177,15 +177,24 @@ function validateAndBuildProfile(input) {
     .filter(Boolean);
   const nuclei_tags = tagList.join(',');
 
-  const rateLimit = Math.min(300, Math.max(5, parseInt(input.rate_limit || '50', 10) || 50));
-  const concurrency = Math.min(25, Math.max(2, parseInt(input.nuclei_concurrency || '8', 10) || 8));
+  const rateLimit = Math.min(500, Math.max(10, parseInt(input.rate_limit || '150', 10) || 150));
+  const concurrency = Math.min(50, Math.max(2, parseInt(input.nuclei_concurrency || '25', 10) || 25));
   const automaticScan = input.automatic_scan !== false;
 
   const nuclei_args = [];
   if (automaticScan) {
     nuclei_args.push('-as');
   }
-  if (nuclei_tags) {
+  if (input.include_non_http_nuclei) {
+    nuclei_args.push('-t', 'network/');
+  }
+  if (
+    !nuclei_tags ||
+    nuclei_tags === 'panel,exposure,misconfig,default-login' ||
+    nuclei_tags === 'panel,exposure,default-login'
+  ) {
+    nuclei_args.push('-t', 'http/exposed-panels/', '-t', 'http/default-logins/', '-t', 'http/exposures/');
+  } else {
     nuclei_args.push('-tags', nuclei_tags);
   }
   nuclei_args.push(
@@ -198,11 +207,12 @@ function validateAndBuildProfile(input) {
     '-bs',
     String(Math.max(2, Math.floor(concurrency / 2))),
     '-timeout',
-    '5',
+    '3',
     '-retries',
     '1',
     '-mhe',
-    '15'
+    '10',
+    '-ni'
   );
 
   const nuclei_extra_args = nuclei_args.join(' ');
@@ -405,13 +415,16 @@ async function executeNucleiStage(scanId, target, urls, profileConfig) {
   const baseNucleiArgs = [...(profileConfig.nuclei_args || [])];
 
   if (!baseNucleiArgs.includes('-timeout')) {
-    baseNucleiArgs.push('-timeout', '5');
+    baseNucleiArgs.push('-timeout', '3');
   }
   if (!baseNucleiArgs.includes('-retries')) {
     baseNucleiArgs.push('-retries', '1');
   }
   if (!baseNucleiArgs.includes('-mhe')) {
-    baseNucleiArgs.push('-mhe', '15');
+    baseNucleiArgs.push('-mhe', '10');
+  }
+  if (!baseNucleiArgs.includes('-ni')) {
+    baseNucleiArgs.push('-ni');
   }
 
   const args = [
@@ -427,7 +440,7 @@ async function executeNucleiStage(scanId, target, urls, profileConfig) {
   try {
     const result = await runProcess(NUCLEI_BIN, args, {
       scanId,
-      timeoutMs: 600 * 1000,
+      timeoutMs: 900 * 1000,
       onStdoutLine: (line) => {
         const parsed = parser.parseNucleiJsonlLine(line);
         if (parsed) {

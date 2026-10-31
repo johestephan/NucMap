@@ -380,6 +380,13 @@ async function inspectTlsCertificates(target, openPorts) {
   return tlsFindings;
 }
 
+const NUCLEI_NETWORK_PORTS = new Set([
+  21, 22, 23, 25, 53, 110, 111, 143, 389, 445, 465, 587, 636, 873,
+  993, 995, 1099, 1433, 1521, 2049, 2181, 2375, 2376, 3306, 3389,
+  4369, 5432, 5672, 5900, 5984, 6379, 6443, 7001, 8009, 9042, 9092,
+  9100, 9200, 9300, 11211, 27017
+]);
+
 function buildNucleiTargets(target, openPorts, profileConfig = {}) {
   const urls = new Set();
   const isCidr = target.includes('/');
@@ -392,20 +399,8 @@ function buildNucleiTargets(target, openPorts, profileConfig = {}) {
     if (isWebService(p)) {
       const scheme = isHttpsService(p) ? 'https' : 'http';
       urls.add(`${scheme}://${hostTarget}:${p.port}`);
-    } else {
-      if (profileConfig.include_non_http_nuclei !== false) {
-        urls.add(`${hostTarget}:${p.port}`);
-      }
-    }
-  }
-
-  if (urls.size === 0 && openPorts.length > 0) {
-    for (const p of openPorts) {
-      if (p.state !== 'open') continue;
-      const hostTarget = isCidr && p.host_ip ? p.host_ip : target;
-      if (hostTarget && !hostTarget.includes('/')) {
-        urls.add(`${hostTarget}:${p.port}`);
-      }
+    } else if (profileConfig.include_non_http_nuclei !== false && NUCLEI_NETWORK_PORTS.has(Number(p.port))) {
+      urls.add(`${hostTarget}:${p.port}`);
     }
   }
 
