@@ -534,7 +534,7 @@ app.post('/api/system/syslog/test', (req, res) => {
 
 app.get('/api/assets', (req, res) => {
   try {
-    const includeTransient = req.query.include_transient === 'true';
+    const includeTransient = req.query.include_transient !== 'false';
     const assets = db.listAssets({ includeTransient });
     res.json(assets);
   } catch (err) {

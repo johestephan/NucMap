@@ -220,6 +220,19 @@ function initSchema() {
     WHERE status IN ('queued', 'running_nmap', 'running_nuclei')
   `).run();
 
+  // Clean up legacy _transient tags so all existing scanned assets appear in Monitored Assets
+  try {
+    const allRows = db.prepare('SELECT id, tags FROM assets').all();
+    for (const r of allRows) {
+      const t = safeParseJson(r.tags, []);
+      if (t.includes('_transient')) {
+        const cleaned = t.filter((x) => x !== '_transient');
+        const finalTags = cleaned.length > 0 ? cleaned : ['LAN'];
+        db.prepare('UPDATE assets SET tags = ? WHERE id = ?').run(JSON.stringify(finalTags), r.id);
+      }
+    }
+  } catch (_) {}
+
   seedDefaultProfiles();
 }
 
@@ -533,18 +546,10 @@ function upsertAsset({ target, hostname, mac_address, vendor, tags = [], default
     : [];
 
   if (existing) {
-    const existingTags = safeParseJson(existing.tags, []);
-    const wasTransient = existingTags.includes('_transient');
-    let finalTags;
-    if (save_asset) {
-      finalTags = cleanTags.length > 0 ? cleanTags : existingTags.filter((t) => t !== '_transient');
-    } else if (wasTransient) {
-      finalTags = ['_transient'];
-    } else {
-      finalTags = existingTags;
-    }
-
+    const existingTags = safeParseJson(existing.tags, []).filter((t) => t !== '_transient');
+    const finalTags = cleanTags.length > 0 ? cleanTags : (existingTags.length > 0 ? existingTags : ['LAN']);
     const newProfile = default_profile || existing.default_profile || 'standard';
+
     db.prepare(`
       UPDATE assets
       SET tags = ?,
@@ -564,7 +569,7 @@ function upsertAsset({ target, hostname, mac_address, vendor, tags = [], default
 
     return getAssetById(existing.id);
   } else {
-    const storedTags = save_asset ? cleanTags : ['_transient'];
+    const storedTags = cleanTags.length > 0 ? cleanTags : ['LAN'];
     const info = db.prepare(`
       INSERT INTO assets (target, hostname, mac_address, vendor, tags, default_profile)
       VALUES (?, ?, ?, ?, ?, ?)
@@ -614,7 +619,7 @@ function updateAssetConfig(assetId, { tags, default_profile, hostname }) {
         hostname = COALESCE(?, hostname)
     WHERE id = ?
   `).run(
-    JSON.stringify(cleanTags),
+    JSON.stringify(cleanTags.length > 0 ? cleanTags : ['LAN']),
     default_profile || null,
     hostname !== undefined ? hostname : null,
     assetId
@@ -627,7 +632,7 @@ function deleteAsset(assetId) {
   return res.changes > 0;
 }
 
-function listAssets({ includeTransient = false } = {}) {
+function listAssets({ includeTransient = true } = {}) {
   const rows = db.prepare('SELECT * FROM assets ORDER BY created_at DESC').all();
   const result = [];
 
