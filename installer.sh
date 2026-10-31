@@ -93,14 +93,31 @@ if [[ ! -x /usr/local/bin/nuclei ]]; then
 fi
 /usr/local/bin/nuclei -version || true
 
-# 3. Setup Nmap NSE Vulscan & Update Script DB
-echo "[3/7] Configuring Nmap NSE scripts and Vulscan..."
+# 3. Setup Nmap NSE Vulscan, NucMap-scripts Library & Update Script DB
+echo "[3/7] Configuring Nmap NSE scripts, Vulscan, and NucMap-scripts library..."
 if [[ ! -d /usr/share/nmap/scripts/vulscan ]]; then
   git clone --depth 1 https://github.com/scipag/vulscan.git /usr/share/nmap/scripts/vulscan || true
+else
+  git -C /usr/share/nmap/scripts/vulscan pull --ff-only || true
 fi
 if [[ -f /usr/share/nmap/scripts/vulscan/utilities/updater/updateFiles.sh ]]; then
   chmod +x /usr/share/nmap/scripts/vulscan/utilities/updater/updateFiles.sh
 fi
+
+NUCMAP_SCRIPTS_DIR="${NUCMAP_SCRIPTS_DIR:-/opt/nucmap-scripts}"
+if [[ ! -d "${NUCMAP_SCRIPTS_DIR}/.git" ]]; then
+  rm -rf "${NUCMAP_SCRIPTS_DIR}"
+  git clone --depth 1 https://github.com/johestephan/NucMap-scripts.git "${NUCMAP_SCRIPTS_DIR}" || true
+else
+  git -C "${NUCMAP_SCRIPTS_DIR}" pull --ff-only || true
+fi
+
+if [[ -d "${NUCMAP_SCRIPTS_DIR}/nse" ]]; then
+  for nse_file in "${NUCMAP_SCRIPTS_DIR}"/nse/*.nse; do
+    [[ -f "${nse_file}" && "$(basename "${nse_file}")" != "nucmap-template.nse" ]] && cp "${nse_file}" /usr/share/nmap/scripts/ || true
+  done
+fi
+
 nmap --script-updatedb
 
 # 4. Initialize Nuclei Templates & Compatibility Symlinks
@@ -111,6 +128,10 @@ TEMPLATES_DIR="${HOME}/nuclei-templates"
 if [[ -d "${TEMPLATES_DIR}" ]]; then
   [[ -d "${TEMPLATES_DIR}/http/cves" && ! -e "${TEMPLATES_DIR}/cves" ]] && ln -s "${TEMPLATES_DIR}/http/cves" "${TEMPLATES_DIR}/cves" || true
   [[ -d "${TEMPLATES_DIR}/http/exposed-panels" && ! -e "${TEMPLATES_DIR}/exposed-panels" ]] && ln -s "${TEMPLATES_DIR}/http/exposed-panels" "${TEMPLATES_DIR}/exposed-panels" || true
+  if [[ -d "${NUCMAP_SCRIPTS_DIR}/nuclei" ]]; then
+    mkdir -p "${TEMPLATES_DIR}/nucmap-custom"
+    cp "${NUCMAP_SCRIPTS_DIR}"/nuclei/*.yaml "${TEMPLATES_DIR}/nucmap-custom/" 2>/dev/null || true
+  fi
 fi
 
 # 5. Setup Directories & Fetch/Copy Application Files

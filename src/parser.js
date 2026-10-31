@@ -113,6 +113,103 @@ function parseVulscanScriptOutput(outputText, portNum, targetHost) {
   return findings;
 }
 
+const IGNORED_BUILTIN_NSE_SCRIPTS = new Set([
+  'fingerprint-strings',
+  'ssl-cert',
+  'ssl-date',
+  'http-server-header',
+  'http-title',
+  'http-methods',
+  'http-favicon',
+  'http-robots.txt',
+  'ssh-hostkey',
+  'nbstat',
+  'smb-os-discovery',
+  'smb2-security-mode',
+  'smb2-time',
+  'dns-nsid'
+]);
+
+// Parse custom NucMap-scripts & Nmap vulns-library NSE script output
+function parseGeneralNseScriptOutput(scriptId, outputText, portNum, targetHost) {
+  if (!scriptId || !outputText || typeof outputText !== 'string') return [];
+  if (IGNORED_BUILTIN_NSE_SCRIPTS.has(scriptId) && !/VULNERABLE/i.test(outputText)) {
+    return [];
+  }
+
+  const trimmed = outputText.trim();
+  if (!trimmed || /^NOT VULNERABLE/i.test(trimmed) || /State:\s*NOT VULNERABLE/i.test(trimmed)) {
+    return [];
+  }
+
+  const isVulnerable =
+    /State:\s*(?:LIKELY\s+)?VULNERABLE/i.test(trimmed) ||
+    /\bVULNERABLE:/i.test(trimmed) ||
+    /\bVULNERABLE\b/i.test(trimmed);
+
+  if (!isVulnerable) {
+    return [];
+  }
+
+  const lines = trimmed
+    .split('\n')
+    .map((l) => l.trim())
+    .filter(Boolean);
+
+  let title = `${scriptId} vulnerability detected`;
+  for (let i = 0; i < lines.length; i++) {
+    if (/^VULNERABLE:?$/i.test(lines[i]) && lines[i + 1]) {
+      title = lines[i + 1];
+      break;
+    }
+  }
+  if (title === `${scriptId} vulnerability detected` && lines[0]) {
+    title = lines[0].replace(/^VULNERABLE:\s*/i, '');
+  }
+
+  const riskMatch = trimmed.match(/Risk factor:\s*(Critical|High|Medium|Low)/i);
+  let severity = /LIKELY\s+VULNERABLE/i.test(trimmed) ? 'high' : 'critical';
+  if (riskMatch) {
+    severity = riskMatch[1].toLowerCase();
+  } else if (/critical/i.test(trimmed)) {
+    severity = 'critical';
+  } else if (/high/i.test(trimmed)) {
+    severity = 'high';
+  } else if (/medium/i.test(trimmed)) {
+    severity = 'medium';
+  } else if (/low/i.test(trimmed)) {
+    severity = 'low';
+  }
+
+  const cveMatches = trimmed.match(/CVE-\d{4}-\d{4,7}/gi) || [];
+  const uniqueCves = Array.from(new Set(cveMatches.map((c) => c.toUpperCase())));
+  const cveId = uniqueCves.length > 0 ? uniqueCves.join(', ') : null;
+
+  const extracted = [`source:nse:${scriptId}`];
+  for (const line of lines) {
+    if (
+      /^(PHP Version|Detected via|Server|Status|Leaf Subject|Leaf Issuer|Leaf SHA-256|Detection|Exploitation pattern):/i.test(
+        line
+      )
+    ) {
+      extracted.push(line);
+    }
+  }
+
+  return [
+    {
+      port: portNum,
+      template_id: `nse-${scriptId.toLowerCase()}`,
+      name: `[NSE ${scriptId}] ${title.slice(0, 160)}`,
+      severity,
+      cve_id: cveId,
+      matched_at: `${targetHost}:${portNum}`,
+      extracted_results: extracted.slice(0, 10),
+      description: trimmed.slice(0, 1500)
+    }
+  ];
+}
+
 async function parseNmapXml(xmlString, defaultTarget = '') {
   if (!xmlString || !xmlString.trim()) {
     return {
@@ -212,13 +309,22 @@ async function parseNmapXml(xmlString, defaultTarget = '') {
         .filter(Boolean);
       const cpe = cpeList.length > 0 ? cpeList.join(', ') : null;
 
-      // Parse NSE scripts on port (such as vulscan)
+      // Parse NSE scripts on port (vulscan + NucMap-scripts / custom NSE scripts)
       const scripts = asArray(p?.script);
       for (const sc of scripts) {
         const scAttrs = sc?.$ || {};
-        if (scAttrs.id === 'vulscan' && scAttrs.output) {
+        if (!scAttrs.id || !scAttrs.output) continue;
+        if (scAttrs.id === 'vulscan') {
           const matchedVulns = parseVulscanScriptOutput(scAttrs.output, portNum, hostIp || defaultTarget);
           nseVulns.push(...matchedVulns);
+        } else {
+          const matchedCustom = parseGeneralNseScriptOutput(
+            scAttrs.id,
+            scAttrs.output,
+            portNum,
+            hostIp || defaultTarget
+          );
+          nseVulns.push(...matchedCustom);
         }
       }
 
@@ -501,7 +607,10 @@ function buildNucleiTargets(target, openPorts, profileConfig = {}) {
     if (isWebService(p)) {
       const scheme = isHttpsService(p) ? 'https' : 'http';
       urls.add(`${scheme}://${hostTarget}:${p.port}`);
-    } else if (profileConfig.include_non_http_nuclei !== false && NUCLEI_NETWORK_PORTS.has(Number(p.port))) {
+    } else if (
+      isTlsCandidatePort(p) ||
+      (profileConfig.include_non_http_nuclei !== false && NUCLEI_NETWORK_PORTS.has(Number(p.port)))
+    ) {
       urls.add(`${hostTarget}:${p.port}`);
     }
   }

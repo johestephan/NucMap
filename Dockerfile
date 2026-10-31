@@ -43,9 +43,12 @@ RUN set -eux; \
     rm -rf /tmp/nuclei.zip /tmp/nuclei_bin; \
     /usr/local/bin/nuclei -version
 
-# 3. Install Nmap NSE Vulscan offline CVE database & update Nmap script DB
+# 3. Install Nmap NSE Vulscan, NucMap-scripts library & update Nmap script DB
 RUN git clone --depth 1 https://github.com/scipag/vulscan.git /usr/share/nmap/scripts/vulscan && \
     chmod +x /usr/share/nmap/scripts/vulscan/utilities/updater/updateFiles.sh 2>/dev/null || true && \
+    git clone --depth 1 https://github.com/johestephan/NucMap-scripts.git /opt/nucmap-scripts && \
+    cp /opt/nucmap-scripts/nse/*.nse /usr/share/nmap/scripts/ 2>/dev/null || true && \
+    rm -f /usr/share/nmap/scripts/nucmap-template.nse && \
     nmap --script-updatedb
 
 # 4. Install Node.js application

@@ -91,6 +91,7 @@ app.get('/api/system/status', (req, res) => {
     const sigStatus = scanner.getSignatureUpdateStatus();
     const queue = scanner.getQueueState();
     const syslogConfig = syslog.getSyslogConfig();
+    const scriptsLib = scanner.listNucmapScripts();
     res.json({
       ok: true,
       name: 'NucMap',
@@ -100,7 +101,8 @@ app.get('/api/system/status', (req, res) => {
       profiles,
       signatures: sigStatus,
       queue,
-      syslog: syslogConfig
+      syslog: syslogConfig,
+      scripts_count: (scriptsLib.modules || []).length
     });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -308,6 +310,43 @@ app.get('/api/export/nucmap.db', (req, res) => {
     res.download(db.dbPath, 'nucmap.db');
   } catch (err) {
     res.status(500).json({ error: err.message });
+  }
+});
+
+// ==================== NUCMAP-SCRIPTS LIBRARY API ====================
+
+app.get('/api/scripts', (req, res) => {
+  try {
+    res.json(scanner.listNucmapScripts());
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/scripts/run', (req, res) => {
+  try {
+    const {
+      target,
+      targets,
+      scripts = [],
+      ports = '80,443,8080,8443',
+      stage_mode = 'full',
+      save_asset = true,
+      concurrency
+    } = req.body || {};
+
+    const result = scanner.triggerScriptScan({
+      target,
+      targets,
+      scripts,
+      ports,
+      stage_mode,
+      save_asset,
+      concurrency
+    });
+    res.status(202).json(result);
+  } catch (err) {
+    res.status(400).json({ error: err.message });
   }
 });
 

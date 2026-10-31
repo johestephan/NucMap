@@ -68,6 +68,9 @@ bash -c "$(curl -fsSL https://raw.githubusercontent.com/johestephan/NucMap/main/
   * Auto-detects local network interfaces and subnet CIDRs for one-click selection.
   * **Fast Multi-Probe Sweep**: Combines ICMP (`-PE -PP`), TCP SYN/ACK ping probes across 15 common service ports, kernel `/proc/net/arp` + IEEE OUI hardware vendor lookup (even inside unprivileged LXC containers), and parallel reverse DNS resolution.
   * **Deep Port-Assisted Sweep (`-Pn --top-ports 25`)**: Discovers firewalled hosts that drop ICMP echo requests and previews their open ports before import.
+* **Companion `NucMap-scripts` Library Integration (`https://github.com/johestephan/NucMap-scripts`)**:
+  * Automatically clones, syncs, and indexes custom Nmap `.nse` Lua scripts and ProjectDiscovery Nuclei `.yaml` templates from [**NucMap-scripts**](https://github.com/johestephan/NucMap-scripts) during installation and via the **Signature & Template Updater** (`[2/4]`).
+  * Any new `.nse` or `.yaml` script added to `NucMap-scripts` is automatically executed in standard scan profiles AND appears in the **NucMap-scripts Library** tab for targeted, on-demand single-script execution.
 * **Custom Scan Profiles & Port Builder**:
   * Includes 7 built-in profiles (`web` [80,443], `web-backend` [80,443,3000,5000,8080...], `server` [SSH, LDAP, SMB, DB, Mail, DNS, Proxmox...], `quick`, `standard`, `deep`, `stealth`) plus a visual builder to create custom port profiles.
 * **Synchronous Parallel Scanning (`1x` – `5x` Hosts)**:
@@ -192,6 +195,8 @@ NucMap/
 | `GET` | `/api/scan/:id` | Poll live scan status, discovered ports, TLS certs, vulns, and diff |
 | `POST` | `/api/vulns/triage` | Mark a finding as `open`, `accepted_risk`, or `false_positive` |
 | `GET` | `/api/diffs` | Retrieve chronological attack surface drift events |
+| `GET` | `/api/scripts` | Dynamically list all custom `.nse`, `.yaml`, and `.sh` modules from `NucMap-scripts` |
+| `POST` | `/api/scripts/run` | Run selected `NucMap-scripts` modules against target(s) (`{"target": "192.168.1.10", "scripts": ["php-php2shell"]}`) |
 | `GET/POST` | `/api/profiles` | List or create custom Nmap + Nuclei scan profiles |
 | `GET/POST` | `/api/schedules` | List or create automated recurring scan schedules |
 | `GET/POST` | `/api/system/syslog` | Configure JSON Syslog, Webhook, and Postfix email alerts |

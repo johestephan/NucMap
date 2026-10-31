@@ -123,7 +123,7 @@ function scanStatusBadge(status) {
 // Tab Switching
 function switchTab(tabName) {
   state.activeTab = tabName;
-  const tabs = ['assets', 'active-scan', 'diffs', 'profiles', 'schedules'];
+  const tabs = ['assets', 'active-scan', 'diffs', 'profiles', 'schedules', 'scripts'];
   for (const t of tabs) {
     const panel = document.getElementById(`tab-panel-${t}`);
     const btn = document.getElementById(`tab-btn-${t}`);
@@ -153,6 +153,8 @@ function switchTab(tabName) {
   } else if (tabName === 'schedules') {
     fetchSchedules();
     fetchSyslogData();
+  } else if (tabName === 'scripts') {
+    fetchScriptsLibrary();
   }
 }
 
@@ -164,6 +166,10 @@ async function fetchSystemStatus() {
     const data = await res.json();
     state.signatures = data.signatures || state.signatures;
     state.queue = data.queue || state.queue;
+    if (data.scripts_count !== undefined) {
+      const scriptsBadge = document.getElementById('tab-badge-scripts');
+      if (scriptsBadge) scriptsBadge.textContent = String(data.scripts_count);
+    }
     if (data.profiles) {
       state.profiles = data.profiles;
       populateProfileDropdowns();
@@ -2210,8 +2216,263 @@ async function pollSignatureStatus() {
     } else if (data.status !== 'running' && state.sigPollTimer) {
       clearInterval(state.sigPollTimer);
       state.sigPollTimer = null;
+      fetchScriptsLibrary();
     }
   } catch (_) {}
+}
+
+// ==================== TAB 6: NUCMAP-SCRIPTS LIBRARY & RUNNER ====================
+
+async function fetchScriptsLibrary() {
+  try {
+    const res = await fetch('/api/scripts');
+    if (!res.ok) return;
+    const data = await res.json();
+    state.scriptsLibrary = data;
+    const badge = document.getElementById('tab-badge-scripts');
+    if (badge) {
+      badge.textContent = String((data.modules || []).length);
+    }
+    renderScriptsLibrary();
+  } catch (err) {
+    console.error('Failed to fetch NucMap-scripts library:', err);
+  }
+}
+
+function renderScriptsLibrary() {
+  const data = state.scriptsLibrary || { modules: [], audit_scripts: [] };
+  const modules = data.modules || [];
+  const audits = data.audit_scripts || [];
+
+  const pathLabel = document.getElementById('scripts-lib-path-label');
+  if (pathLabel && data.local_path) {
+    pathLabel.innerHTML = `Local Path: <span class="font-mono text-slate-300">${escapeHtml(
+      data.local_path
+    )}</span> • <span class="text-emerald-300">${modules.length} scanner module(s)</span> &amp; <span class="text-cyan-300">${
+      audits.length
+    } local audit script(s)</span>`;
+  }
+
+  // Populate asset picker in Script Runner
+  const picker = document.getElementById('script-run-asset-picker');
+  if (picker) {
+    picker.innerHTML =
+      `<option value="">Pick from Monitored Assets...</option>` +
+      (state.assets || [])
+        .map(
+          (a) =>
+            `<option value="${escapeHtml(a.target)}">${escapeHtml(a.target)}${
+              a.hostname ? ` (${escapeHtml(a.hostname)})` : ''
+            }</option>`
+        )
+        .join('');
+  }
+
+  // Populate checkboxes
+  const cbContainer = document.getElementById('script-runner-checkboxes');
+  if (cbContainer) {
+    if (modules.length === 0) {
+      cbContainer.innerHTML = `<div class="text-slate-500">No scripts found. Click "↻ Sync / Pull from GitHub" to install NucMap-scripts.</div>`;
+    } else {
+      cbContainer.innerHTML = modules
+        .map(
+          (m) => `
+          <label class="flex items-start gap-2.5 p-1.5 rounded hover:bg-slate-900 cursor-pointer">
+            <input type="checkbox" name="nucmap-script-cb" value="${escapeHtml(
+              m.id
+            )}" checked class="mt-0.5 rounded bg-slate-900 border-slate-700 text-cyan-500" />
+            <div class="min-w-0 flex-1">
+              <div class="flex flex-wrap items-center gap-1.5">
+                <span class="font-mono font-bold text-white">${escapeHtml(m.id)}</span>
+                ${severityBadge(m.severity || 'high')}
+                ${
+                  m.has_nse
+                    ? `<span class="px-1.5 py-0.5 rounded text-[10px] font-mono bg-cyan-500/15 text-cyan-300 border border-cyan-500/30">NSE</span>`
+                    : ''
+                }
+                ${
+                  m.has_nuclei
+                    ? `<span class="px-1.5 py-0.5 rounded text-[10px] font-mono bg-amber-500/15 text-amber-300 border border-amber-500/30">Nuclei</span>`
+                    : ''
+                }
+              </div>
+              <div class="text-[11px] text-slate-400 truncate">${escapeHtml(m.name)}</div>
+            </div>
+          </label>
+        `
+        )
+        .join('');
+    }
+  }
+
+  // Render cards
+  const cardsContainer = document.getElementById('scripts-library-cards');
+  if (!cardsContainer) return;
+
+  if (modules.length === 0 && audits.length === 0) {
+    cardsContainer.innerHTML = `
+      <div class="p-8 text-center text-xs text-slate-400 border border-slate-800 rounded-xl bg-slate-950/60">
+        NucMap-scripts repository is not yet cloned. Click <strong>"↻ Sync / Pull from GitHub"</strong> above to fetch the latest scripts from <code>https://github.com/johestephan/NucMap-scripts</code>.
+      </div>
+    `;
+    return;
+  }
+
+  const moduleCards = modules.map((m) => {
+    const cveBadges = (m.cves || [])
+      .map(
+        (c) =>
+          `<span class="px-2 py-0.5 rounded text-[10px] font-mono font-semibold bg-rose-500/15 text-rose-300 border border-rose-500/30">${escapeHtml(
+            c
+          )}</span>`
+      )
+      .join(' ');
+
+    return `
+      <div class="p-4 rounded-xl bg-slate-950/70 border border-slate-800 space-y-2.5">
+        <div class="flex flex-wrap items-start justify-between gap-2">
+          <div>
+            <div class="flex flex-wrap items-center gap-2">
+              <span class="text-sm font-bold font-mono text-white">${escapeHtml(m.id)}</span>
+              ${severityBadge(m.severity || 'high')}
+              ${cveBadges}
+            </div>
+            <div class="text-xs font-semibold text-slate-200 mt-1">${escapeHtml(m.name)}</div>
+          </div>
+          <button
+            type="button"
+            onclick="selectSingleScriptForRun('${escapeHtml(m.id)}')"
+            class="px-3 py-1.5 rounded-lg text-xs font-semibold bg-cyan-500/15 hover:bg-cyan-500/25 text-cyan-300 border border-cyan-500/30 shrink-0"
+          >
+            ⚡ Select &amp; Run
+          </button>
+        </div>
+
+        <p class="text-xs text-slate-400 leading-relaxed">${escapeHtml(m.description)}</p>
+
+        <div class="flex flex-wrap items-center gap-2 pt-1 text-[11px] font-mono">
+          ${
+            m.has_nse
+              ? `<span class="px-2 py-0.5 rounded bg-slate-900 text-cyan-300 border border-slate-700">Nmap NSE: nse/${escapeHtml(
+                  m.nse_filename
+                )}</span>`
+              : ''
+          }
+          ${
+            m.has_nuclei
+              ? `<span class="px-2 py-0.5 rounded bg-slate-900 text-amber-300 border border-slate-700">Nuclei YAML: nuclei/${escapeHtml(
+                  m.nuclei_filename
+                )}</span>`
+              : ''
+          }
+        </div>
+      </div>
+    `;
+  });
+
+  if (audits.length > 0) {
+    moduleCards.push(`
+      <div class="p-4 rounded-xl bg-slate-950/40 border border-slate-800/80 space-y-2">
+        <div class="text-xs font-bold uppercase tracking-wider text-slate-400">Auxiliary Local/CLI Audit Scripts (scripts/*.sh)</div>
+        <div class="space-y-2">
+          ${audits
+            .map(
+              (a) => `
+            <div class="p-2.5 rounded-lg bg-slate-900/80 border border-slate-800 flex flex-wrap items-center justify-between gap-2 text-xs">
+              <div>
+                <span class="font-mono font-bold text-emerald-300">scripts/${escapeHtml(a.filename)}</span>
+                <span class="ml-2 text-slate-400">${escapeHtml(a.description)}</span>
+              </div>
+              <div class="flex gap-1">
+                ${(a.cves || [])
+                  .map(
+                    (c) =>
+                      `<span class="px-1.5 py-0.5 rounded text-[10px] font-mono bg-slate-800 text-slate-300">${escapeHtml(
+                        c
+                      )}</span>`
+                  )
+                  .join('')}
+              </div>
+            </div>
+          `
+            )
+            .join('')}
+        </div>
+      </div>
+    `);
+  }
+
+  cardsContainer.innerHTML = moduleCards.join('');
+}
+
+function toggleAllScriptCheckboxes(checked) {
+  document.querySelectorAll('input[name="nucmap-script-cb"]').forEach((cb) => {
+    cb.checked = checked;
+  });
+}
+
+function selectSingleScriptForRun(scriptId) {
+  document.querySelectorAll('input[name="nucmap-script-cb"]').forEach((cb) => {
+    cb.checked = cb.value === scriptId;
+  });
+  const portsInput = document.getElementById('script-run-ports');
+  if (portsInput) {
+    portsInput.value = scriptId.includes('ssl') ? '443,8443' : '80,443,8080,8443';
+  }
+  const targetInput = document.getElementById('script-run-target');
+  if (targetInput) {
+    targetInput.focus();
+  }
+  showToast(`Selected "${scriptId}". Enter a target host on the left and click Run!`, 'info');
+}
+
+async function handleScriptRunnerSubmit(e) {
+  e.preventDefault();
+  const target = document.getElementById('script-run-target').value.trim();
+  const ports = document.getElementById('script-run-ports').value.trim() || '80,443,8080,8443';
+  const stage_mode = document.getElementById('script-run-stage-mode').value || 'full';
+  const selected = Array.from(document.querySelectorAll('input[name="nucmap-script-cb"]:checked')).map(
+    (cb) => cb.value
+  );
+
+  if (!target) {
+    showToast('Enter at least one target host', 'error');
+    return;
+  }
+  if (selected.length === 0) {
+    showToast('Select at least one NucMap-scripts module to execute', 'error');
+    return;
+  }
+
+  try {
+    const res = await fetch('/api/scripts/run', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        target,
+        ports,
+        stage_mode,
+        scripts: selected,
+        save_asset: true
+      })
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      showToast(data.error || 'Failed to start script scan', 'error');
+      return;
+    }
+
+    showToast(
+      `Running ${selected.length} NucMap-script(s) on ${data.target} (Scan #${data.scan_id})`,
+      'success'
+    );
+    state.currentScanId = data.scan_id;
+    switchTab('active-scan');
+    await refreshRecentScans();
+    await fetchScanDetail(data.scan_id);
+  } catch (err) {
+    showToast(err.message, 'error');
+  }
 }
 
 function renderSignatureModalState(data) {

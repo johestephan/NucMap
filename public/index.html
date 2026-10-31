@@ -281,6 +281,15 @@
         >
           <span>5. Schedules, Alerts &amp; Syslog</span>
         </button>
+
+        <button
+          id="tab-btn-scripts"
+          onclick="switchTab('scripts')"
+          class="tab-btn px-3.5 py-2.5 text-xs sm:text-sm font-semibold rounded-t-lg border-b-2 border-transparent text-slate-400 hover:text-slate-200 flex items-center gap-2 transition"
+        >
+          <span>6. NucMap-scripts Library</span>
+          <span id="tab-badge-scripts" class="px-2 py-0.5 text-xs rounded-full bg-cyan-500/20 text-cyan-300 border border-cyan-500/30">2</span>
+        </button>
       </nav>
 
       <div class="flex flex-wrap items-center gap-2 pb-2">
@@ -781,6 +790,115 @@
       </div>
     </section>
 
+    <!-- TAB 6: NUCMAP-SCRIPTS LIBRARY & TARGETED RUNNER -->
+    <section id="tab-panel-scripts" class="hidden space-y-6">
+      <div class="grid grid-cols-1 lg:grid-cols-12 gap-6">
+        <!-- Left: Targeted Script Runner -->
+        <div class="lg:col-span-5">
+          <div class="bg-slate-900/90 border border-slate-800 rounded-xl p-5 shadow-xl space-y-4">
+            <div class="border-b border-slate-800 pb-3 flex items-center justify-between">
+              <div>
+                <h3 class="text-base font-bold text-white">Targeted Script Runner</h3>
+                <p class="text-xs text-slate-400">Run custom `.nse` &amp; `.yaml` checks from `NucMap-scripts` against any host</p>
+              </div>
+              <span class="px-2 py-0.5 text-[10px] font-mono rounded bg-cyan-500/15 text-cyan-300 border border-cyan-500/30">Fast Verify</span>
+            </div>
+
+            <form onsubmit="handleScriptRunnerSubmit(event)" class="space-y-3.5">
+              <div>
+                <div class="flex items-center justify-between mb-1">
+                  <label class="block text-xs font-semibold text-slate-300">Target Host(s)</label>
+                  <select id="script-run-asset-picker" onchange="if(this.value){document.getElementById('script-run-target').value=this.value; this.value='';}" class="text-[11px] px-2 py-0.5 rounded bg-slate-950 border border-slate-700 text-cyan-300">
+                    <option value="">Pick from Monitored Assets...</option>
+                  </select>
+                </div>
+                <input
+                  type="text"
+                  id="script-run-target"
+                  required
+                  placeholder="e.g. 192.168.1.10, host.example.internal"
+                  class="w-full px-3 py-2 text-xs font-mono rounded-lg bg-slate-950 border border-slate-700 text-white focus:outline-none focus:border-cyan-500"
+                />
+              </div>
+
+              <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label class="block text-xs font-semibold text-slate-300 mb-1">Target Ports</label>
+                  <input
+                    type="text"
+                    id="script-run-ports"
+                    required
+                    value="80,443,8080,8443"
+                    placeholder="80,443,8080,8443"
+                    class="w-full px-3 py-1.5 text-xs font-mono rounded-lg bg-slate-950 border border-slate-700 text-emerald-300 focus:outline-none focus:border-cyan-500"
+                  />
+                </div>
+                <div>
+                  <label class="block text-xs font-semibold text-slate-300 mb-1">Engine Mode</label>
+                  <select
+                    id="script-run-stage-mode"
+                    class="w-full px-2.5 py-1.5 text-xs rounded-lg bg-slate-950 border border-slate-700 text-white"
+                  >
+                    <option value="full" selected>Both: Nmap (.nse) + Nuclei (.yaml)</option>
+                    <option value="nmap_only">Nmap (.nse) Only</option>
+                    <option value="nuclei_only">Nuclei (.yaml) Only (Saved Ports)</option>
+                  </select>
+                </div>
+              </div>
+
+              <div>
+                <div class="flex items-center justify-between mb-1.5">
+                  <label class="text-xs font-semibold text-slate-300">Select Scripts to Execute</label>
+                  <div class="space-x-2 text-[11px]">
+                    <button type="button" onclick="toggleAllScriptCheckboxes(true)" class="text-cyan-400 hover:underline">Select All</button>
+                    <button type="button" onclick="toggleAllScriptCheckboxes(false)" class="text-slate-400 hover:underline">Clear</button>
+                  </div>
+                </div>
+                <div id="script-runner-checkboxes" class="space-y-1.5 max-h-52 overflow-y-auto p-2.5 rounded-lg bg-slate-950 border border-slate-800 text-xs">
+                  <div class="text-slate-500">Loading scripts from NucMap-scripts...</div>
+                </div>
+              </div>
+
+              <button
+                type="submit"
+                class="w-full py-2.5 rounded-lg text-xs font-semibold bg-cyan-500 hover:bg-cyan-400 text-slate-950 shadow-lg shadow-cyan-500/20 transition flex items-center justify-center gap-2"
+              >
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M13 10V3L4 14h7v7l9-11h-7z" />
+                </svg>
+                <span>Run Selected NucMap-scripts Now</span>
+              </button>
+            </form>
+          </div>
+        </div>
+
+        <!-- Right: NucMap-scripts Catalog -->
+        <div class="lg:col-span-7 space-y-4">
+          <div class="bg-slate-900/90 border border-slate-800 rounded-xl p-5 shadow-xl space-y-4">
+            <div class="flex flex-wrap items-center justify-between gap-3 border-b border-slate-800 pb-3">
+              <div>
+                <div class="flex items-center gap-2">
+                  <h3 class="text-base font-bold text-white">NucMap-scripts Library</h3>
+                  <a href="https://github.com/johestephan/NucMap-scripts" target="_blank" rel="noopener noreferrer" class="text-xs font-mono text-cyan-400 hover:underline">github.com/johestephan/NucMap-scripts ↗</a>
+                </div>
+                <p id="scripts-lib-path-label" class="text-xs text-slate-400 mt-0.5">Custom NSE Lua scripts, Nuclei YAML templates &amp; local audit helpers (auto-included in standard scans)</p>
+              </div>
+              <div class="flex items-center gap-2">
+                <button onclick="fetchScriptsLibrary()" class="px-3 py-1.5 rounded-lg text-xs font-medium bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700">
+                  Refresh
+                </button>
+                <button onclick="openSignatureModal(true)" class="px-3 py-1.5 rounded-lg text-xs font-semibold bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 border border-emerald-500/30">
+                  ↻ Sync / Pull from GitHub
+                </button>
+              </div>
+            </div>
+
+            <div id="scripts-library-cards" class="space-y-3"></div>
+          </div>
+        </div>
+      </div>
+    </section>
+
   </main>
 
   <!-- MODAL 1: SIGNATURE & TEMPLATE UPDATER -->
@@ -802,9 +920,10 @@
         <div class="text-xs text-slate-400 space-y-1">
           <p>Executes background maintenance tasks and streams output below:</p>
           <ul class="list-disc list-inside text-slate-300 font-mono text-[11px]">
-            <li>nuclei -update-templates</li>
-            <li>nmap --script-updatedb</li>
-            <li>/usr/share/nmap/scripts/vulscan/utilities/updater/updateFiles.sh (if present)</li>
+            <li>[1/4] nuclei -update-templates</li>
+            <li>[2/4] git pull https://github.com/johestephan/NucMap-scripts (NSE + Nuclei library)</li>
+            <li>[3/4] nmap --script-updatedb</li>
+            <li>[4/4] git pull /usr/share/nmap/scripts/vulscan (Offline CVE databases)</li>
           </ul>
         </div>
 

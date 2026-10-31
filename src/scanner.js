@@ -246,6 +246,306 @@ function resolveBinary(preferredPath, fallbackName) {
 
 const NMAP_BIN = resolveBinary('/usr/bin/nmap', 'nmap');
 const NUCLEI_BIN = resolveBinary('/usr/local/bin/nuclei', 'nuclei');
+const NUCMAP_SCRIPTS_REPO_URL = 'https://github.com/johestephan/NucMap-scripts.git';
+
+function getNucmapScriptsDir() {
+  const candidates = [
+    process.env.NUCMAP_SCRIPTS_DIR,
+    '/opt/nucmap-scripts',
+    path.resolve(__dirname, '../../NucMap-scripts'),
+    path.resolve(__dirname, '../data/nucmap-scripts')
+  ].filter(Boolean);
+
+  for (const dir of candidates) {
+    try {
+      if (
+        fs.existsSync(dir) &&
+        (fs.existsSync(path.join(dir, 'nse')) || fs.existsSync(path.join(dir, 'nuclei')))
+      ) {
+        return dir;
+      }
+    } catch (_) {}
+  }
+  return process.env.NUCMAP_SCRIPTS_DIR || '/opt/nucmap-scripts';
+}
+
+function syncNucmapScriptsToSystem(scriptsDir = getNucmapScriptsDir(), logFn = () => {}) {
+  if (!fs.existsSync(scriptsDir)) return { nse_copied: 0, nuclei_copied: 0 };
+
+  let nseCopied = 0;
+  let nucleiCopied = 0;
+
+  // 1. Copy active .nse scripts into /usr/share/nmap/scripts/ if writable
+  const nseSrcDir = path.join(scriptsDir, 'nse');
+  const nmapScriptsSysDir = '/usr/share/nmap/scripts';
+  if (fs.existsSync(nseSrcDir) && fs.existsSync(nmapScriptsSysDir)) {
+    try {
+      const files = fs.readdirSync(nseSrcDir).filter((f) => f.endsWith('.nse') && f !== 'nucmap-template.nse');
+      for (const file of files) {
+        const src = path.join(nseSrcDir, file);
+        const dest = path.join(nmapScriptsSysDir, file);
+        fs.copyFileSync(src, dest);
+        nseCopied++;
+      }
+      if (nseCopied > 0) {
+        logFn(`Installed ${nseCopied} NucMap-scripts .nse file(s) into ${nmapScriptsSysDir}`);
+      }
+    } catch (err) {
+      logFn(`[INFO] Using NucMap-scripts .nse files directly from ${nseSrcDir} (${err.code || err.message})`);
+    }
+  }
+
+  // 2. Copy .yaml templates into ~/nuclei-templates/nucmap-custom/
+  const nucleiSrcDir = path.join(scriptsDir, 'nuclei');
+  const homeDir = process.env.HOME || '/root';
+  const customNucleiDir = path.join(homeDir, 'nuclei-templates', 'nucmap-custom');
+  if (fs.existsSync(nucleiSrcDir)) {
+    try {
+      fs.mkdirSync(customNucleiDir, { recursive: true });
+      const files = fs.readdirSync(nucleiSrcDir).filter((f) => f.endsWith('.yaml') || f.endsWith('.yml'));
+      for (const file of files) {
+        fs.copyFileSync(path.join(nucleiSrcDir, file), path.join(customNucleiDir, file));
+        nucleiCopied++;
+      }
+      if (nucleiCopied > 0) {
+        logFn(`Synced ${nucleiCopied} NucMap-scripts Nuclei template(s) into ${customNucleiDir}`);
+      }
+    } catch (_) {}
+  }
+
+  return { nse_copied: nseCopied, nuclei_copied: nucleiCopied };
+}
+
+function parseNseFileMetadata(filePath) {
+  const filename = path.basename(filePath);
+  const id = filename.replace(/\.nse$/i, '');
+  let content = '';
+  try {
+    content = fs.readFileSync(filePath, 'utf8');
+  } catch (_) {}
+
+  const descMatch = content.match(/description\s*=\s*\[\[([\s\S]*?)\]\]/);
+  const rawDesc = descMatch ? descMatch[1].trim() : '';
+  const firstParagraph = rawDesc.split(/\n\s*\n/)[0]?.replace(/\s+/g, ' ').trim() || `Custom Nmap NSE script (${filename})`;
+
+  const catMatch = content.match(/categories\s*=\s*\{([^}]*)\}/);
+  const categories = catMatch
+    ? catMatch[1]
+        .split(',')
+        .map((c) => c.replace(/['"\s]/g, ''))
+        .filter(Boolean)
+    : ['vuln', 'safe'];
+
+  const cveMatches = content.match(/CVE-\d{4}-\d{4,7}/gi) || [];
+  const cves = Array.from(new Set(cveMatches.map((c) => c.toUpperCase())));
+
+  let severity = 'high';
+  if (/risk_factor\s*=\s*["']Critical["']|Risk factor:\s*Critical/i.test(content)) {
+    severity = 'critical';
+  } else if (/risk_factor\s*=\s*["']Medium["']|Risk factor:\s*Medium/i.test(content)) {
+    severity = 'medium';
+  } else if (/risk_factor\s*=\s*["']Low["']|Risk factor:\s*Low/i.test(content)) {
+    severity = 'low';
+  } else if (!categories.includes('vuln')) {
+    severity = 'info';
+  }
+
+  const titleMatch = content.match(/title\s*=\s*["']([^"']+)["']/);
+  const name = titleMatch ? titleMatch[1].trim() : firstParagraph.slice(0, 100);
+
+  return {
+    id,
+    filename,
+    path: filePath,
+    name,
+    description: firstParagraph,
+    full_description: rawDesc,
+    categories,
+    cves,
+    severity
+  };
+}
+
+function parseNucleiYamlMetadata(filePath) {
+  const filename = path.basename(filePath);
+  let content = '';
+  try {
+    content = fs.readFileSync(filePath, 'utf8');
+  } catch (_) {}
+
+  const idMatch = content.match(/^id:\s*([^\s#]+)/m);
+  const id = idMatch ? idMatch[1].trim() : filename.replace(/\.ya?ml$/i, '');
+
+  const nameMatch = content.match(/^\s*name:\s*(.+)$/m);
+  const name = nameMatch ? nameMatch[1].trim().replace(/^['"]|['"]$/g, '') : id;
+
+  const sevMatch = content.match(/^\s*severity:\s*([^\s#]+)/m);
+  const severity = sevMatch ? sevMatch[1].trim().toLowerCase() : 'high';
+
+  const tagsMatch = content.match(/^\s*tags:\s*(.+)$/m);
+  const tags = tagsMatch
+    ? tagsMatch[1]
+        .split(',')
+        .map((t) => t.trim())
+        .filter(Boolean)
+    : [];
+
+  let description = '';
+  const descBlockMatch = content.match(/^\s*description:\s*\|\s*\n((?:\s{4,}.*\n?)+)/m);
+  if (descBlockMatch) {
+    description = descBlockMatch[1]
+      .split('\n')
+      .map((l) => l.trim())
+      .filter(Boolean)
+      .slice(0, 3)
+      .join(' ');
+  }
+
+  const cveMatches = content.match(/CVE-\d{4}-\d{4,7}/gi) || [];
+  const cves = Array.from(new Set(cveMatches.map((c) => c.toUpperCase())));
+
+  return {
+    id,
+    filename,
+    path: filePath,
+    name,
+    description: description || name,
+    severity,
+    tags,
+    cves
+  };
+}
+
+function parseShellAuditMetadata(filePath) {
+  const filename = path.basename(filePath);
+  const id = filename.replace(/\.sh$/i, '');
+  let content = '';
+  try {
+    content = fs.readFileSync(filePath, 'utf8');
+  } catch (_) {}
+
+  const commentLines = content
+    .split('\n')
+    .slice(1, 15)
+    .filter((l) => l.startsWith('#'))
+    .map((l) => l.replace(/^#+\s*/, '').trim())
+    .filter((l) => l && !/^=+$/.test(l));
+
+  const cveMatches = content.match(/CVE-\d{4}-\d{4,7}/gi) || [];
+  const cves = Array.from(new Set(cveMatches.map((c) => c.toUpperCase())));
+
+  return {
+    id,
+    filename,
+    path: filePath,
+    description: commentLines.slice(0, 2).join(' — ') || `Auxiliary audit script (${filename})`,
+    cves
+  };
+}
+
+function listNucmapScripts() {
+  const scriptsDir = getNucmapScriptsDir();
+  const nseDir = path.join(scriptsDir, 'nse');
+  const nucleiDir = path.join(scriptsDir, 'nuclei');
+  const shDir = path.join(scriptsDir, 'scripts');
+
+  const nseList = [];
+  if (fs.existsSync(nseDir)) {
+    try {
+      const files = fs
+        .readdirSync(nseDir)
+        .filter((f) => f.endsWith('.nse') && f !== 'nucmap-template.nse')
+        .sort();
+      for (const f of files) {
+        nseList.push(parseNseFileMetadata(path.join(nseDir, f)));
+      }
+    } catch (_) {}
+  }
+
+  const nucleiList = [];
+  if (fs.existsSync(nucleiDir)) {
+    try {
+      const files = fs
+        .readdirSync(nucleiDir)
+        .filter((f) => f.endsWith('.yaml') || f.endsWith('.yml'))
+        .sort();
+      for (const f of files) {
+        nucleiList.push(parseNucleiYamlMetadata(path.join(nucleiDir, f)));
+      }
+    } catch (_) {}
+  }
+
+  const auditList = [];
+  if (fs.existsSync(shDir)) {
+    try {
+      const files = fs
+        .readdirSync(shDir)
+        .filter((f) => f.endsWith('.sh'))
+        .sort();
+      for (const f of files) {
+        auditList.push(parseShellAuditMetadata(path.join(shDir, f)));
+      }
+    } catch (_) {}
+  }
+
+  // Merge NSE + Nuclei scripts by matching ID into unified modules
+  const modulesMap = new Map();
+  for (const nse of nseList) {
+    modulesMap.set(nse.id, {
+      id: nse.id,
+      name: nse.name,
+      description: nse.description,
+      severity: nse.severity,
+      cves: [...nse.cves],
+      categories: nse.categories,
+      tags: [],
+      has_nse: true,
+      nse_filename: nse.filename,
+      nse_path: nse.path,
+      has_nuclei: false,
+      nuclei_filename: null,
+      nuclei_path: null
+    });
+  }
+
+  for (const nuc of nucleiList) {
+    if (modulesMap.has(nuc.id)) {
+      const existing = modulesMap.get(nuc.id);
+      existing.has_nuclei = true;
+      existing.nuclei_filename = nuc.filename;
+      existing.nuclei_path = nuc.path;
+      existing.name = nuc.name || existing.name;
+      existing.tags = nuc.tags || [];
+      existing.cves = Array.from(new Set([...existing.cves, ...nuc.cves]));
+    } else {
+      modulesMap.set(nuc.id, {
+        id: nuc.id,
+        name: nuc.name,
+        description: nuc.description,
+        severity: nuc.severity,
+        cves: [...nuc.cves],
+        categories: [],
+        tags: nuc.tags || [],
+        has_nse: false,
+        nse_filename: null,
+        nse_path: null,
+        has_nuclei: true,
+        nuclei_filename: nuc.filename,
+        nuclei_path: nuc.path
+      });
+    }
+  }
+
+  return {
+    repo_url: 'https://github.com/johestephan/NucMap-scripts',
+    local_path: scriptsDir,
+    installed: fs.existsSync(scriptsDir),
+    modules: Array.from(modulesMap.values()),
+    nse_scripts: nseList,
+    nuclei_templates: nucleiList,
+    audit_scripts: auditList
+  };
+}
 
 const activeScanProcesses = new Map();
 
@@ -445,27 +745,59 @@ async function discoverSubnetHosts(rawCidr, { mode = 'fast' } = {}) {
   }));
 }
 
-async function executeNmapStage(scanId, target, profileConfig) {
-  const extraVulscanArgs = [];
+async function executeNmapStage(scanId, target, profileConfig, stageOpts = {}) {
+  const scriptPaths = [];
+  const scriptArgs = [];
+
   if (
+    !stageOpts.only_custom_scripts &&
     profileConfig.enable_vulscan &&
     fs.existsSync('/usr/share/nmap/scripts/vulscan/vulscan.nse')
   ) {
-    extraVulscanArgs.push(
-      '--script=vulscan/vulscan.nse',
-      '--script-args',
-      'vulscandb=cve.csv'
-    );
+    scriptPaths.push('vulscan/vulscan.nse');
+    scriptArgs.push('vulscandb=cve.csv');
   }
 
-  const baseArgs = ['-oX', '-', ...profileConfig.nmap_args, ...extraVulscanArgs, '--', target];
+  // Include NucMap-scripts (.nse) either selectively or automatically
+  const library = listNucmapScripts();
+  const selectedIds = Array.isArray(stageOpts.selected_scripts) && stageOpts.selected_scripts.length > 0
+    ? new Set(stageOpts.selected_scripts)
+    : null;
+
+  if (selectedIds) {
+    for (const mod of library.modules) {
+      if (selectedIds.has(mod.id) && mod.has_nse && mod.nse_path && fs.existsSync(mod.nse_path)) {
+        scriptPaths.push(mod.nse_path);
+      }
+    }
+  } else if (profileConfig.enable_nucmap_scripts !== false) {
+    for (const mod of library.modules) {
+      if (mod.has_nse && mod.nse_path && fs.existsSync(mod.nse_path)) {
+        scriptPaths.push(mod.nse_path);
+      }
+    }
+  }
+
+  const extraScriptFlags = [];
+  if (scriptPaths.length > 0) {
+    extraScriptFlags.push(`--script=${scriptPaths.join(',')}`);
+  }
+  if (scriptArgs.length > 0) {
+    extraScriptFlags.push('--script-args', scriptArgs.join(','));
+  }
+
+  const nmapProfileArgs = stageOpts.override_ports
+    ? [...profileConfig.nmap_args.filter((a, i, arr) => a !== '-F' && a !== '-p-' && a !== '-p' && arr[i - 1] !== '-p'), '-p', stageOpts.override_ports]
+    : profileConfig.nmap_args;
+
+  const baseArgs = ['-oX', '-', ...nmapProfileArgs, ...extraScriptFlags, '--', target];
   let result = await runProcess(NMAP_BIN, baseArgs, { scanId, timeoutMs: 900 * 1000 });
 
   if (
     result.code !== 0 &&
     /root privileges|raw|socket|Operation not permitted|dnet: Failed/i.test(result.stderr)
   ) {
-    const fallbackFlags = profileConfig.nmap_args.map((flag) => {
+    const fallbackFlags = nmapProfileArgs.map((flag) => {
       if (flag === '-sS') return '-sT';
       if (flag === '-A') return '-sC';
       return flag;
@@ -473,7 +805,7 @@ async function executeNmapStage(scanId, target, profileConfig) {
     if (!fallbackFlags.includes('-sT')) {
       fallbackFlags.unshift('-sT');
     }
-    const fallbackArgs = ['-oX', '-', ...fallbackFlags, ...extraVulscanArgs, '--', target];
+    const fallbackArgs = ['-oX', '-', ...fallbackFlags, ...extraScriptFlags, '--', target];
     result = await runProcess(NMAP_BIN, fallbackArgs, { scanId, timeoutMs: 900 * 1000 });
   }
 
@@ -503,18 +835,58 @@ function ensureNucleiTemplateSymlinks() {
   } catch (_) {}
 }
 
-async function executeNucleiStage(scanId, target, urls, profileConfig) {
+async function executeNucleiStage(scanId, target, urls, profileConfig, stageOpts = {}) {
   if (!urls || urls.length === 0) {
     return { code: 0, stdout: '', stderr: '' };
   }
 
   ensureNucleiTemplateSymlinks();
 
+  const library = listNucmapScripts();
+  const selectedIds = Array.isArray(stageOpts.selected_scripts) && stageOpts.selected_scripts.length > 0
+    ? new Set(stageOpts.selected_scripts)
+    : null;
+
+  let baseNucleiArgs = [];
+  if (stageOpts.only_custom_scripts) {
+    const customTemplatePaths = [];
+    for (const mod of library.modules) {
+      if ((!selectedIds || selectedIds.has(mod.id)) && mod.has_nuclei && mod.nuclei_path && fs.existsSync(mod.nuclei_path)) {
+        customTemplatePaths.push('-t', mod.nuclei_path);
+      }
+    }
+    if (customTemplatePaths.length === 0) {
+      return { code: 0, stdout: '', stderr: '' };
+    }
+    baseNucleiArgs = [
+      ...customTemplatePaths,
+      '-s',
+      'info,low,medium,high,critical',
+      '-rl',
+      '150',
+      '-c',
+      '25',
+      '-timeout',
+      '5',
+      '-retries',
+      '1',
+      '-ni'
+    ];
+  } else {
+    baseNucleiArgs = [...(profileConfig.nuclei_args || [])];
+    if (profileConfig.enable_nucmap_scripts !== false) {
+      for (const mod of library.modules) {
+        if ((!selectedIds || selectedIds.has(mod.id)) && mod.has_nuclei && mod.nuclei_path && fs.existsSync(mod.nuclei_path)) {
+          baseNucleiArgs.push('-t', mod.nuclei_path);
+        }
+      }
+    }
+  }
+
   const tmpFile = `/tmp/scan_${scanId}_urls.txt`;
   fs.writeFileSync(tmpFile, urls.join('\n') + '\n', { mode: 0o600 });
 
   const seenFindings = new Set();
-  const baseNucleiArgs = [...(profileConfig.nuclei_args || [])];
 
   if (!baseNucleiArgs.includes('-timeout')) {
     baseNucleiArgs.push('-timeout', '3');
@@ -690,7 +1062,7 @@ async function runScanPipeline(scanId) {
     db.updateScanStatus(scanId, 'running_nmap', { error_log: null });
     let nmapResult;
     try {
-      nmapResult = await executeNmapStage(scanId, target, profileConfig);
+      nmapResult = await executeNmapStage(scanId, target, profileConfig, opts);
     } catch (err) {
       if (cancelledScanIds.has(scanId)) return;
       db.updateScanStatus(scanId, 'failed', {
@@ -794,7 +1166,7 @@ async function runScanPipeline(scanId) {
 
     if (nucleiUrls.length > 0 && !cancelledScanIds.has(scanId)) {
       try {
-        const nucleiResult = await executeNucleiStage(scanId, target, nucleiUrls, profileConfig);
+        const nucleiResult = await executeNucleiStage(scanId, target, nucleiUrls, profileConfig, opts);
         nucleiRawJsonl = nucleiResult.stdout || '';
         if (nucleiResult.code !== 0 && nucleiResult.stderr) {
           nucleiWarning = `Nuclei exited with code ${nucleiResult.code}: ${nucleiResult.stderr.trim()}`;
@@ -962,6 +1334,93 @@ function triggerScan({
   };
 }
 
+function triggerScriptScan({
+  target,
+  targets,
+  scripts = [],
+  ports = '80,443,8080,8443',
+  stage_mode = 'full',
+  save_asset = true,
+  concurrency
+}) {
+  if (concurrency !== undefined) {
+    setMaxConcurrency(concurrency);
+  }
+
+  let targetList = [];
+  if (Array.isArray(targets) && targets.length > 0) {
+    targetList = targets;
+  } else if (typeof target === 'string') {
+    targetList = target
+      .split(/[\s,]+/)
+      .map((t) => t.trim())
+      .filter(Boolean);
+  }
+
+  if (targetList.length === 0) {
+    throw new Error('At least one target is required.');
+  }
+
+  const library = listNucmapScripts();
+  const validIds = new Set(library.modules.map((m) => m.id));
+  const selectedScripts = Array.isArray(scripts)
+    ? scripts.filter((id) => validIds.has(id))
+    : [];
+
+  const cleanPorts = String(ports || '80,443,8080,8443').trim().replace(/\s+/g, '');
+  if (!/^[0-9,\-]+$/.test(cleanPorts)) {
+    throw new Error('Ports must be comma-separated port numbers or ranges (e.g. 80,443,8080,8443).');
+  }
+
+  const cleanStageMode = ['full', 'nmap_only', 'nuclei_only'].includes(stage_mode) ? stage_mode : 'full';
+  const jobs = [];
+
+  for (const rawT of targetList) {
+    const cleanTarget = sanitizeAndValidateTarget(rawT);
+    const asset = db.upsertAsset({
+      target: cleanTarget,
+      tags: ['Scripts'],
+      default_profile: 'web-backend',
+      save_asset: Boolean(save_asset)
+    });
+
+    const scanId = db.createScan(asset.id, 'web-backend');
+    scanStageOptions.set(scanId, {
+      stage_mode: cleanStageMode,
+      only_port: null,
+      is_rerun: false,
+      only_custom_scripts: true,
+      selected_scripts: selectedScripts.length > 0 ? selectedScripts : Array.from(validIds),
+      override_ports: cleanPorts
+    });
+    enqueueScan(scanId);
+
+    jobs.push({
+      scan_id: scanId,
+      asset_id: asset.id,
+      target: asset.target,
+      profile: 'web-backend',
+      stage_mode: cleanStageMode,
+      scripts: selectedScripts.length > 0 ? selectedScripts : Array.from(validIds),
+      ports: cleanPorts,
+      status: 'queued'
+    });
+  }
+
+  return {
+    scan_id: jobs[0].scan_id,
+    asset_id: jobs[0].asset_id,
+    target: jobs[0].target,
+    profile: 'web-backend',
+    stage_mode: cleanStageMode,
+    scripts: jobs[0].scripts,
+    ports: cleanPorts,
+    status: 'queued',
+    jobs,
+    scan_ids: jobs.map((j) => j.scan_id)
+  };
+}
+
 function triggerBulkDiffRescan({ profileOverride = null, tagFilter = null, concurrency = null } = {}) {
   if (concurrency !== null && concurrency !== undefined) {
     setMaxConcurrency(concurrency);
@@ -1084,7 +1543,7 @@ async function runSignatureUpdateJob() {
 
   let hasError = false;
 
-  appendUpdaterLog('--- [1/3] Updating ProjectDiscovery Nuclei Templates ---');
+  appendUpdaterLog('--- [1/4] Updating ProjectDiscovery Nuclei Templates ---');
   try {
     const res = await runProcess(NUCLEI_BIN, ['-update-templates', '-nc'], {
       onStdoutLine: (l) => l.trim() && appendUpdaterLog(`[nuclei] ${l}`),
@@ -1098,7 +1557,35 @@ async function runSignatureUpdateJob() {
     hasError = true;
   }
 
-  appendUpdaterLog('--- [2/3] Updating Nmap NSE Script Database ---');
+  appendUpdaterLog(`--- [2/4] Syncing NucMap-scripts Library (${NUCMAP_SCRIPTS_REPO_URL}) ---`);
+  try {
+    const scriptsDir = getNucmapScriptsDir();
+    const scriptsGitDir = path.join(scriptsDir, '.git');
+    if (fs.existsSync(scriptsGitDir)) {
+      appendUpdaterLog(`Updating NucMap-scripts repository in ${scriptsDir}...`);
+      const gitRes = await runProcess('git', ['-C', scriptsDir, 'pull', '--ff-only'], {
+        cwd: scriptsDir,
+        onStdoutLine: (l) => l.trim() && appendUpdaterLog(`[nucmap-scripts] ${l}`),
+        onStderrLine: (l) => l.trim() && appendUpdaterLog(`[nucmap-scripts] ${l}`),
+        timeoutMs: 120 * 1000
+      });
+      appendUpdaterLog(`NucMap-scripts git pull finished (exit code ${gitRes.code}).`);
+    } else {
+      const targetCloneDir = '/opt/nucmap-scripts';
+      appendUpdaterLog(`Cloning ${NUCMAP_SCRIPTS_REPO_URL} into ${targetCloneDir}...`);
+      const cloneRes = await runProcess('git', ['clone', '--depth', '1', NUCMAP_SCRIPTS_REPO_URL, targetCloneDir], {
+        onStdoutLine: (l) => l.trim() && appendUpdaterLog(`[nucmap-scripts] ${l}`),
+        onStderrLine: (l) => l.trim() && appendUpdaterLog(`[nucmap-scripts] ${l}`),
+        timeoutMs: 120 * 1000
+      });
+      appendUpdaterLog(`NucMap-scripts clone finished (exit code ${cloneRes.code}).`);
+    }
+    syncNucmapScriptsToSystem(getNucmapScriptsDir(), appendUpdaterLog);
+  } catch (err) {
+    appendUpdaterLog(`[WARN] NucMap-scripts sync warning: ${err.message}`);
+  }
+
+  appendUpdaterLog('--- [3/4] Updating Nmap NSE Script Database ---');
   try {
     const res = await runProcess(NMAP_BIN, ['--script-updatedb'], {
       onStdoutLine: (l) => l.trim() && appendUpdaterLog(`[nmap] ${l}`),
@@ -1111,7 +1598,7 @@ async function runSignatureUpdateJob() {
     hasError = true;
   }
 
-  appendUpdaterLog('--- [3/3] Checking Nmap Vulscan Local CSV Databases ---');
+  appendUpdaterLog('--- [4/4] Checking Nmap Vulscan Local CSV Databases ---');
   const vulscanDir = '/usr/share/nmap/scripts/vulscan';
   const vulscanGitDir = '/usr/share/nmap/scripts/vulscan/.git';
   const vulscanUpdaterPath = '/usr/share/nmap/scripts/vulscan/utilities/updater/updateFiles.sh';
@@ -1206,9 +1693,12 @@ module.exports = {
   sanitizeAndValidateTarget,
   detectLocalSubnets,
   discoverSubnetHosts,
+  listNucmapScripts,
+  syncNucmapScriptsToSystem,
   getMaxConcurrency,
   setMaxConcurrency,
   triggerScan,
+  triggerScriptScan,
   rerunScanStage,
   cancelScan,
   triggerBulkDiffRescan,
