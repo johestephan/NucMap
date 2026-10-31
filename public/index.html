@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>NucMap v0.1.1 — ASM &amp; Vulnerability Scanner</title>
+  <title>NucMap v0.1.2 — ASM &amp; Vulnerability Scanner</title>
   <script src="/tailwind.js"></script>
   <script>
     if (typeof tailwind === 'undefined') {
@@ -51,7 +51,7 @@
             <div>
               <div class="flex items-center gap-2">
                 <h1 class="text-lg font-bold tracking-tight text-white">NucMap</h1>
-                <span class="text-[11px] font-mono font-semibold px-1.5 py-0.5 rounded bg-slate-800 text-slate-300 border border-slate-700">v0.1.1</span>
+                <span class="text-[11px] font-mono font-semibold px-1.5 py-0.5 rounded bg-slate-800 text-slate-300 border border-slate-700">v0.1.2</span>
                 <span class="text-[11px] font-semibold uppercase tracking-wider px-2 py-0.5 rounded bg-cyan-500/15 text-cyan-400 border border-cyan-500/30">ASM &amp; Vuln Scanner</span>
               </div>
               <p class="text-xs text-slate-400">Nmap + Nuclei + Vulscan • Subnet Discovery • TLS Inspector • Drift Alerts &amp; JSON Syslog</p>
@@ -322,34 +322,113 @@
         <div class="px-5 py-4 border-b border-slate-800 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
           <div>
             <h2 class="text-base font-semibold text-white">Monitored Assets Inventory</h2>
-            <p class="text-xs text-slate-400">Saved hosts and subnets tracked for open service changes, TLS expiry, and CVEs (click any HTTP/HTTPS port badge to open service)</p>
+            <p class="text-xs text-slate-400">Saved hosts and subnets tracked for open service changes, TLS expiry, and CVEs (click any column header to sort)</p>
           </div>
           <div class="flex items-center gap-2">
             <button onclick="scanSelectedAssets()" id="btn-scan-selected" class="hidden px-3 py-1.5 rounded-lg text-xs font-semibold bg-cyan-500 text-slate-950 hover:bg-cyan-400 transition">
               Scan Selected (Parallel)
             </button>
-            <input
-              type="text"
-              id="asset-filter-input"
-              oninput="renderAssetsTable()"
-              placeholder="Filter by IP, hostname, tag, port..."
-              class="px-3 py-1.5 text-xs rounded-lg bg-slate-950 border border-slate-700 text-slate-200 placeholder-slate-500 focus:outline-none focus:border-cyan-500"
-            />
+          </div>
+        </div>
+
+        <!-- Asset Filter & Sort Bar -->
+        <div class="px-5 py-3 bg-slate-950/40 border-b border-slate-800/80 flex flex-wrap items-center justify-between gap-3 text-xs">
+          <div class="flex flex-wrap items-center gap-2.5 flex-1 min-w-[280px]">
+            <div class="relative flex-1 min-w-[200px]">
+              <div class="absolute inset-y-0 left-0 pl-2.5 flex items-center pointer-events-none text-slate-500">
+                <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                </svg>
+              </div>
+              <input
+                type="text"
+                id="asset-filter-input"
+                oninput="renderAssetsTable()"
+                placeholder="Search target, hostname, vendor, port, tag..."
+                class="w-full pl-8 pr-3 py-1.5 text-xs rounded-lg bg-slate-950 border border-slate-700/80 text-white placeholder-slate-500 focus:outline-none focus:border-cyan-500"
+              />
+            </div>
+
+            <select
+              id="asset-filter-tag"
+              onchange="renderAssetsTable()"
+              class="px-2.5 py-1.5 text-xs rounded-lg bg-slate-950 border border-slate-700/80 text-slate-200 focus:outline-none focus:border-cyan-500"
+            >
+              <option value="all">All Tags</option>
+            </select>
+
+            <select
+              id="asset-filter-vuln"
+              onchange="renderAssetsTable()"
+              class="px-2.5 py-1.5 text-xs rounded-lg bg-slate-950 border border-slate-700/80 text-slate-200 focus:outline-none focus:border-cyan-500"
+            >
+              <option value="all">All Security States</option>
+              <option value="has_vulns">Has Findings</option>
+              <option value="crit_high">Critical / High Only</option>
+              <option value="clean">Clean (0 Findings)</option>
+            </select>
+
+            <select
+              id="asset-filter-profile"
+              onchange="renderAssetsTable()"
+              class="px-2.5 py-1.5 text-xs rounded-lg bg-slate-950 border border-slate-700/80 text-slate-200 focus:outline-none focus:border-cyan-500"
+            >
+              <option value="all">All Profiles</option>
+            </select>
+
+            <button
+              id="btn-reset-asset-filters"
+              type="button"
+              onclick="resetAssetFilters()"
+              class="hidden px-2 py-1 rounded text-[11px] text-slate-400 hover:text-cyan-300 hover:bg-slate-800 transition"
+              title="Reset all filters"
+            >
+              ✕ Clear Filters
+            </button>
+          </div>
+
+          <div class="flex items-center gap-2 text-slate-400">
+            <span id="asset-table-count-label" class="text-[11px] font-mono">0 assets</span>
           </div>
         </div>
 
         <div class="overflow-x-auto">
           <table class="min-w-full divide-y divide-slate-800 text-left text-sm">
-            <thead class="bg-slate-950/60 text-xs uppercase text-slate-400 font-semibold">
+            <thead class="bg-slate-950/60 text-xs uppercase text-slate-400 font-semibold select-none">
               <tr>
                 <th class="px-4 py-3.5 w-8">
                   <input type="checkbox" id="select-all-assets" onchange="toggleSelectAllAssets(this.checked)" class="rounded bg-slate-950 border-slate-700 text-cyan-500" />
                 </th>
-                <th class="px-4 py-3.5">Target / Hostname</th>
-                <th class="px-4 py-3.5">MAC / Vendor</th>
-                <th class="px-4 py-3.5">Open Ports</th>
-                <th class="px-4 py-3.5">Vulnerability Summary</th>
-                <th class="px-4 py-3.5">Last Scanned</th>
+                <th class="px-4 py-3.5 cursor-pointer hover:text-cyan-400 transition" onclick="setAssetSort('target')">
+                  <div class="flex items-center gap-1.5">
+                    <span>Target / Hostname</span>
+                    <span id="sort-icon-target" class="text-[10px] text-cyan-400 font-mono">▲</span>
+                  </div>
+                </th>
+                <th class="px-4 py-3.5 cursor-pointer hover:text-cyan-400 transition" onclick="setAssetSort('vendor')">
+                  <div class="flex items-center gap-1.5">
+                    <span>MAC / Vendor</span>
+                    <span id="sort-icon-vendor" class="text-[10px] text-slate-500 font-mono">↕</span>
+                  </div>
+                </th>
+                <th class="px-4 py-3.5 cursor-pointer hover:text-cyan-400 transition" onclick="setAssetSort('ports')">
+                  <div class="flex items-center gap-1.5">
+                    <span>Open Ports</span>
+                    <span id="sort-icon-ports" class="text-[10px] text-slate-500 font-mono">↕</span>
+                  </div>
+                </th>
+                <th class="px-4 py-3.5 cursor-pointer hover:text-cyan-400 transition" onclick="setAssetSort('vulns')">
+                  <div class="flex items-center gap-1.5">
+                    <span>Vulnerability Summary</span>
+                    <span id="sort-icon-vulns" class="text-[10px] text-slate-500 font-mono">↕</span>
+                  </div>
+                </th>
+                <th class="px-4 py-3.5 cursor-pointer hover:text-cyan-400 transition" onclick="setAssetSort('last_scanned')">
+                  <div class="flex items-center gap-1.5">
+                    <span>Last Scanned</span>
+                    <span id="sort-icon-last_scanned" class="text-[10px] text-slate-500 font-mono">↕</span>
+                  </div>
+                </th>
                 <th class="px-5 py-3.5 text-right">Actions</th>
               </tr>
             </thead>
@@ -911,7 +990,7 @@
     <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex flex-col sm:flex-row items-center justify-between gap-4">
       <div class="flex flex-wrap items-center gap-2">
         <span class="font-bold text-white tracking-wider">NucMap</span>
-        <span class="px-1.5 py-0.5 rounded text-[10px] font-mono bg-cyan-500/15 text-cyan-300 border border-cyan-500/30">v0.1.1</span>
+        <span class="px-1.5 py-0.5 rounded text-[10px] font-mono bg-cyan-500/15 text-cyan-300 border border-cyan-500/30">v0.1.2</span>
         <span class="text-slate-600">•</span>
         <span>&copy; 2026 MIT License</span>
         <span class="text-slate-600">•</span>

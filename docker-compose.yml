@@ -3,7 +3,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-    image: ghcr.io/johestephan/nucmap:0.1.1
+    image: ghcr.io/johestephan/nucmap:0.1.2
     container_name: nucmap
     restart: unless-stopped
     ports:

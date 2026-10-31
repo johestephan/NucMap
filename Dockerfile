@@ -2,7 +2,7 @@ FROM node:22-bookworm-slim
 
 LABEL org.opencontainers.image.title="NucMap" \
       org.opencontainers.image.description="Self-Hosted Attack Surface Management (ASM) & Vulnerability Scanner (Nmap + Nuclei + Vulscan)" \
-      org.opencontainers.image.version="0.1.1" \
+      org.opencontainers.image.version="0.1.2" \
       org.opencontainers.image.licenses="MIT" \
       org.opencontainers.image.source="https://github.com/johestephan/NucMap"
 

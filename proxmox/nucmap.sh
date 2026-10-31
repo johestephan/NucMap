@@ -14,7 +14,7 @@ set -euo pipefail
 # ==============================================================================
 
 APP="NucMap"
-APP_VERSION="0.1.1"
+APP_VERSION="0.1.2"
 REPO_RAW="https://raw.githubusercontent.com/johestephan/NucMap/main"
 
 # Colors
@@ -204,10 +204,24 @@ if ! pveam list "${TEMPLATE_STORAGE}" 2>/dev/null | grep -q "${DEBIAN_TPL}"; the
 fi
 msg_ok "Template ready: ${TEMPLATE_STORAGE}:vztmpl/${DEBIAN_TPL}"
 
-# 2. Build network string
+# 2. Build network string & locate Proxmox host SSH authorized keys
 NET_CFG="name=eth0,bridge=${CT_BRIDGE},ip=${CT_IP}"
 if [[ "${CT_IP}" != "dhcp" && -n "${CT_GW}" ]]; then
   NET_CFG="${NET_CFG},gw=${CT_GW}"
+fi
+
+HOST_SSH_KEY=""
+for key_candidate in /root/.ssh/authorized_keys /etc/pve/priv/authorized_keys; do
+  if [[ -f "${key_candidate}" && -s "${key_candidate}" ]]; then
+    HOST_SSH_KEY="${key_candidate}"
+    break
+  fi
+done
+
+PCT_EXTRA_ARGS=()
+if [[ -n "${HOST_SSH_KEY}" ]]; then
+  msg_ok "Detected Proxmox host SSH key: ${HOST_SSH_KEY}"
+  PCT_EXTRA_ARGS+=(--ssh-public-keys "${HOST_SSH_KEY}")
 fi
 
 # 3. Create LXC Container (without --start 1 so we can start and verify cleanly)
@@ -223,7 +237,8 @@ pct create "${CT_ID}" "${TEMPLATE_STORAGE}:vztmpl/${DEBIAN_TPL}" \
   --net0 "${NET_CFG}" \
   --unprivileged "${CT_UNPRIVILEGED}" \
   --features nesting=1 \
-  --onboot 1
+  --onboot 1 \
+  "${PCT_EXTRA_ARGS[@]}"
 msg_ok "LXC Container ${CT_ID} created"
 
 # 4. Start LXC Container (with fallback if nesting=1 is rejected by host AppArmor/kernel)
@@ -240,7 +255,17 @@ if ! pct start "${CT_ID}" 2>/tmp/nucmap_lxc_start.err; then
 fi
 msg_ok "LXC Container ${CT_ID} started"
 
-# 5. Wait for network inside container
+# 5. Provision SSH Keys inside container if found on host
+if [[ -n "${HOST_SSH_KEY}" ]]; then
+  msg_info "Configuring Proxmox authorized SSH keys inside container ${CT_ID}"
+  pct exec "${CT_ID}" -- mkdir -p /root/.ssh
+  pct exec "${CT_ID}" -- chmod 700 /root/.ssh
+  pct push "${CT_ID}" "${HOST_SSH_KEY}" /root/.ssh/authorized_keys 2>/dev/null || true
+  pct exec "${CT_ID}" -- chmod 600 /root/.ssh/authorized_keys 2>/dev/null || true
+  msg_ok "SSH authorized_keys provisioned"
+fi
+
+# 6. Wait for network inside container
 msg_info "Waiting for container network initialization"
 for _ in {1..20}; do
   if pct exec "${CT_ID}" -- hostname -I 2>/dev/null | grep -qE '[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+'; then
@@ -250,9 +275,9 @@ for _ in {1..20}; do
 done
 msg_ok "Container network is online"
 
-# 6. Provision NucMap inside the container
+# 7. Provision NucMap inside the container
 msg_info "Installing NucMap v${APP_VERSION} inside LXC ${CT_ID} (Nmap, Nuclei, Vulscan, Node.js)"
-pct exec "${CT_ID}" -- bash -c "apt-get update -y && apt-get install -y curl ca-certificates git"
+pct exec "${CT_ID}" -- bash -c "apt-get update -y && apt-get install -y curl ca-certificates git openssh-server"
 pct exec "${CT_ID}" -- bash -c "curl -fsSL ${REPO_RAW}/installer.sh | bash"
 msg_ok "NucMap v${APP_VERSION} installed and started inside LXC ${CT_ID}"
 
@@ -265,5 +290,7 @@ echo "===================================================================="
 echo -e "  • Container ID:  ${BL}${CT_ID}${CL} (${CT_HOSTNAME})"
 echo -e "  • Web Dashboard: ${GN}http://${CT_ACTUAL_IP}:3000${CL}  (and ${GN}http://${CT_ACTUAL_IP}${CL})"
 echo -e "  • SQLite DB:     ${BL}/var/lib/nucmap/nucmap.db${CL}"
+echo -e "  • SSH Login:     ${BL}ssh root@${CT_ACTUAL_IP}${CL} (Host SSH key enabled)"
+echo -e "  • Update NucMap: ${YW}pct exec ${CT_ID} -- update${CL} (or 'update' inside container)"
 echo -e "  • Service Logs:  ${YW}pct exec ${CT_ID} -- journalctl -u nucmap -f${CL}"
 echo "===================================================================="

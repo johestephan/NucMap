@@ -95,7 +95,7 @@ app.get('/api/system/status', (req, res) => {
     res.json({
       ok: true,
       name: 'NucMap',
-      version: '0.1.1',
+      version: '0.1.2',
       auth_enabled: Boolean(process.env.NUCMAP_PASSWORD || process.env.NUCMAP_API_KEY),
       db_file: path.basename(db.dbPath),
       profiles,
@@ -290,7 +290,7 @@ app.get('/api/export/report.json', (req, res) => {
       JSON.stringify(
         {
           app: 'NucMap',
-          version: '0.1.1',
+          version: '0.1.2',
           exported_at: new Date().toISOString(),
           assets,
           recent_diffs: diffs,
@@ -767,8 +767,8 @@ const HOST = process.env.HOST || '0.0.0.0';
 
 const primaryServer = http.createServer(app);
 primaryServer.listen(PORT, HOST, () => {
-  console.log(`[NucMap v0.1.1] Server listening on http://${HOST}:${PORT}`);
-  console.log(`[NucMap v0.1.1] SQLite Database: ${db.dbPath}`);
+  console.log(`[NucMap v0.1.2] Server listening on http://${HOST}:${PORT}`);
+  console.log(`[NucMap v0.1.2] SQLite Database: ${db.dbPath}`);
 });
 
 if (PORT !== 80 && typeof process.getuid === 'function' && process.getuid() === 0 && process.env.DISABLE_PORT_80 !== 'true') {

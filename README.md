@@ -1,6 +1,6 @@
 # NucMap
 
-[![Version](https://img.shields.io/badge/version-0.1.1-06b6d4?style=flat-square)](https://github.com/johestephan/NucMap/releases)
+[![Version](https://img.shields.io/badge/version-0.1.2-06b6d4?style=flat-square)](https://github.com/johestephan/NucMap/releases)
 [![License: MIT](https://img.shields.io/badge/License-MIT-emerald?style=flat-square)](LICENSE)
 [![Proxmox VE LXC](https://img.shields.io/badge/Proxmox_VE-LXC_Helper_Script-E57000?style=flat-square&logo=proxmox)](proxmox/nucmap.sh)
 [![Docker](https://img.shields.io/badge/Docker-Supported-2496ED?style=flat-square&logo=docker)](Dockerfile)
@@ -12,7 +12,7 @@
 
 ## 🚀 Proxmox VE LXC Installation (One-Line Helper Script)
 
-Run the following command directly in the **Proxmox VE Host Shell** (just like the Proxmox VE Community Scripts). It will create an unprivileged Debian LXC container (matching your host CPU architecture `amd64`/`arm64`), install `nmap`, `nuclei`, `vulscan`, and `nucmap`, and print the Web UI URL when finished:
+Run the following command directly in the **Proxmox VE Host Shell** (just like the Proxmox VE Community Scripts). It will create an unprivileged Debian LXC container (matching your host CPU architecture `amd64`/`arm64`), automatically provision your Proxmox host's authorized SSH keys, install `nmap`, `nuclei`, `vulscan`, and `nucmap`, and print the Web UI URL when finished:
 
 ```bash
 bash -c "$(wget -qLO - https://raw.githubusercontent.com/johestephan/NucMap/main/proxmox/nucmap.sh)"
@@ -23,6 +23,7 @@ bash -c "$(wget -qLO - https://raw.githubusercontent.com/johestephan/NucMap/main
 | :--- | :--- | :--- |
 | **OS Template** | Debian 12 / 13 Standard | Auto-downloaded via `pveam` |
 | **Container Type** | Unprivileged LXC | Yes |
+| **SSH Keys** | Proxmox Host Public Keys | Auto-inherited (`/root/.ssh/authorized_keys`) |
 | **CPU** | 2 vCPU Cores | Yes (`CT_CORES`) |
 | **Memory** | 2048 MB RAM (512 MB Swap) | Yes (`CT_RAM`) |
 | **Disk** | 8 GB | Yes (`CT_DISK` / `CT_STORAGE`) |
@@ -39,26 +40,31 @@ CT_ID=150 CT_HOSTNAME=nucmap CT_STORAGE=local-lvm bash -c "$(wget -qLO - https:/
 
 All scan history, monitored assets, custom profiles, and schedules are stored in `/opt/nucmap/data/nucmap.db` and are **preserved** during updates.
 
-### Option A: Update from the Proxmox VE Host Shell
-Replace `<CTID>` (e.g. `107`) with your NucMap container ID:
+### Option A: From Proxmox VE Host Shell (Easiest)
+Replace `<CTID>` (e.g. `107`) with your container ID:
 
 ```bash
-pct exec <CTID> -- bash -c "curl -fsSL https://raw.githubusercontent.com/johestephan/NucMap/main/installer.sh | bash"
+pct exec <CTID> -- update
 ```
+*(Or via curl if using an earlier release: `pct exec <CTID> -- bash -c "curl -fsSL https://raw.githubusercontent.com/johestephan/NucMap/main/installer.sh | bash"`)*
 
-### Option B: Update Inside the LXC Container or VM Console
-Run inside the container/VM as `root`:
+### Option B: Inside the LXC Container Console or VM SSH
+Log in as `root` and simply type:
 
 ```bash
-bash -c "$(curl -fsSL https://raw.githubusercontent.com/johestephan/NucMap/main/installer.sh)"
+update
 ```
+*(Or alias: `nucmap-update`, or via curl: `bash -c "$(curl -fsSL https://raw.githubusercontent.com/johestephan/NucMap/main/installer.sh)"`)*
 
-*(Note: To update **Nuclei Templates** and the **Nmap NSE Script Database** at any time without restarting, click the **"Signatures & Templates"** button in the top-right corner of the Web UI.)*
+*(Note: To update **Nuclei Templates**, **Nmap NSE Scripts**, and the **NucMap-scripts library** at any time without restarting the service, click the **"Signatures & Templates"** button in the top-right corner of the Web UI.)*
 
 ---
 
 ## ✨ Key Features
 
+* **Interactive Asset Table with Column Sorting & Multi-Faceted Filters**:
+  * **Column Sorting**: Click any column header (`Target / Hostname`, `MAC / Vendor`, `Open Ports`, `Vulnerability Summary`, `Last Scanned`) to sort ascending or descending (`▲`/`▼`/`↕`). Numerical IPv4 sorting ensures addresses are correctly ordered (e.g. `192.168.1.2` before `192.168.1.10`), and vulnerability sorting ranks assets by high-risk severity impact.
+  * **Multi-Faceted Filtering**: Filter assets instantly by search text, custom tags (`LAN`, `DMZ`, `IoT`), security status (*Has Critical/High*, *Has Any Vulnerability*, *Clean / No Vulnerabilities*, *Never Scanned*), or scan profile.
 * **Two-Stage Scanning Pipeline + Partial Stage Re-runs**:
   * **Stage 1 (`Nmap` + `TLS` + `Vulscan`)**: Fast port discovery, service banner & CPE fingerprinting (`-sV`), live SSL/TLS certificate expiry inspection, and optional offline `vulscan.nse` (`cve.csv`) banner CVE matching.
   * **Stage 2 (`ProjectDiscovery Nuclei`)**: Automatically pipes discovered HTTP/HTTPS and network services into Nuclei with `-as` (automatic Wappalyzer tech-stack template selection), `-ni` (no external OAST delays), and targeted exposure/default-login/CVE verification.
@@ -107,7 +113,7 @@ Open **`http://<HOST_IP>:3000`** in your browser. To update a Docker deployment 
 
 #### Using `docker build` & `docker run`
 ```bash
-docker build -t nucmap:0.1.1 .
+docker build -t nucmap:0.1.2 .
 
 docker run -d \
   --name nucmap \
@@ -117,7 +123,7 @@ docker run -d \
   --cap-add=NET_ADMIN \
   -v nucmap_data:/data \
   -v nucmap_templates:/root/nuclei-templates \
-  nucmap:0.1.1
+  nucmap:0.1.2
 ```
 
 ---
@@ -171,7 +177,8 @@ NucMap/
 │   └── syslog.js               # RFC5424 JSON Syslog, Webhook & Postfix SMTP alerts
 ├── public/
 │   ├── index.html              # Responsive Dark-Mode Tailwind CSS SPA
-│   └── app.js                  # Frontend logic, live polling & modals
+│   ├── app.js                  # Frontend logic, live polling & modals
+│   └── tailwind.js             # 100% local, offline Tailwind CSS engine
 └── systemd/
     └── nucmap.service          # Systemd unit with MemoryMax & auto-restart
 ```
@@ -182,7 +189,7 @@ NucMap/
 
 | Method | Endpoint | Description |
 | :--- | :--- | :--- |
-| `GET` | `/api/system/status` | System health, version (`0.1.1`), profiles, queue & signature status |
+| `GET` | `/api/system/status` | System health, version (`0.1.2`), profiles, queue & signature status |
 | `GET` | `/api/discover/subnets` | Auto-detect local network interfaces and `/24` subnet CIDRs |
 | `POST` | `/api/discover` | Run Nmap subnet discovery (`{"cidr": "192.168.1.0/24", "mode": "fast" \| "port_sweep"}`) |
 | `GET` | `/api/assets` | List all monitored assets, open port badges, and active vuln counts |

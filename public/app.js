@@ -280,6 +280,7 @@ async function fetchAssets() {
     const res = await fetch('/api/assets');
     if (!res.ok) return;
     state.assets = await res.json();
+    populateAssetFilterDropdowns();
     renderAssetsTable();
     updateOverviewStats();
     populateDiffAssetFilter();
@@ -288,111 +289,217 @@ async function fetchAssets() {
   }
 }
 
-function updateOverviewStats() {
-  const totalAssets = state.assets.length;
-  let totalPorts = 0;
-  let critHigh = 0;
+function populateAssetFilterDropdowns() {
+  const tagSelect = document.getElementById('asset-filter-tag');
+  const profSelect = document.getElementById('asset-filter-profile');
+  if (!tagSelect || !profSelect) return;
 
-  for (const a of state.assets) {
-    totalPorts += a.open_port_count || 0;
-    if (a.vuln_counts) {
-      critHigh += (a.vuln_counts.critical || 0) + (a.vuln_counts.high || 0);
+  const currentTag = tagSelect.value || 'all';
+  const currentProf = profSelect.value || 'all';
+
+  const tagsSet = new Set();
+  const profsSet = new Set();
+
+  for (const a of state.assets || []) {
+    for (const t of a.tags || []) {
+      if (t) tagsSet.add(t);
     }
+    if (a.default_profile) profsSet.add(a.default_profile);
   }
 
-  document.getElementById('stat-total-assets').textContent = totalAssets;
-  document.getElementById('stat-total-ports').textContent = totalPorts;
-  document.getElementById('stat-crit-high-vulns').textContent = critHigh;
-  document.getElementById('stat-total-diffs').textContent = state.diffs.length;
-  document.getElementById('tab-badge-assets').textContent = totalAssets;
-  document.getElementById('tab-badge-diffs').textContent = state.diffs.length;
+  const tagOpts = ['<option value="all">All Tags</option>'];
+  for (const t of Array.from(tagsSet).sort()) {
+    const sel = t === currentTag ? 'selected' : '';
+    tagOpts.push(`<option value="${escapeHtml(t)}" ${sel}>Tag: ${escapeHtml(t)}</option>`);
+  }
+  tagSelect.innerHTML = tagOpts.join('');
+
+  const profOpts = ['<option value="all">All Profiles</option>'];
+  for (const p of Array.from(profsSet).sort()) {
+    const sel = p === currentProf ? 'selected' : '';
+    profOpts.push(`<option value="${escapeHtml(p)}" ${sel}>Profile: ${escapeHtml(p)}</option>`);
+  }
+  profSelect.innerHTML = profOpts.join('');
 }
 
-function toggleAssetSelection(target, checked) {
-  if (checked) {
-    state.selectedAssetTargets.add(target);
+function setAssetSort(column) {
+  if (state.assetSort.column === column) {
+    state.assetSort.order = state.assetSort.order === 'asc' ? 'desc' : 'asc';
   } else {
-    state.selectedAssetTargets.delete(target);
+    state.assetSort.column = column;
+    state.assetSort.order = column === 'vulns' || column === 'ports' || column === 'last_scanned' ? 'desc' : 'asc';
   }
-  updateSelectedAssetsButton();
-}
-
-function toggleSelectAllAssets(checked) {
-  if (checked) {
-    for (const a of state.assets) {
-      state.selectedAssetTargets.add(a.target);
-    }
-  } else {
-    state.selectedAssetTargets.clear();
-  }
+  updateSortHeaderIndicators();
   renderAssetsTable();
-  updateSelectedAssetsButton();
 }
 
-function updateSelectedAssetsButton() {
-  const btn = document.getElementById('btn-scan-selected');
-  if (!btn) return;
-  const count = state.selectedAssetTargets.size;
-  if (count > 0) {
-    btn.classList.remove('hidden');
-    btn.textContent = `Scan Selected (${count} Host${count === 1 ? '' : 's'})`;
-  } else {
-    btn.classList.add('hidden');
-  }
-}
-
-async function scanSelectedAssets() {
-  const targets = Array.from(state.selectedAssetTargets);
-  if (targets.length === 0) return;
-  const profile = document.getElementById('scan-profile-select')?.value || 'standard';
-  const concurrency = Math.min(5, Math.max(1, Number(document.getElementById('global-concurrency-select')?.value || 3)));
-
-  try {
-    const res = await fetch('/api/scan', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ targets, profile, save_asset: true, concurrency })
-    });
-    const data = await res.json();
-    if (!res.ok) {
-      showToast(data.error || 'Failed to queue selected scans', 'error');
-      return;
+function updateSortHeaderIndicators() {
+  const cols = ['target', 'vendor', 'ports', 'vulns', 'last_scanned'];
+  for (const c of cols) {
+    const iconEl = document.getElementById(`sort-icon-${c}`);
+    if (!iconEl) continue;
+    if (state.assetSort.column === c) {
+      iconEl.textContent = state.assetSort.order === 'asc' ? '▲' : '▼';
+      iconEl.className = 'text-[10px] text-cyan-400 font-mono font-bold';
+    } else {
+      iconEl.textContent = '↕';
+      iconEl.className = 'text-[10px] text-slate-500 font-mono';
     }
-    showToast(`Started parallel scan of ${targets.length} host(s) (${concurrency}x concurrency)`, 'success');
-    state.selectedAssetTargets.clear();
-    updateSelectedAssetsButton();
-    state.currentScanId = data.scan_id;
-    switchTab('active-scan');
-    await refreshRecentScans();
-    await fetchScanDetail(data.scan_id);
-  } catch (err) {
-    showToast(err.message, 'error');
   }
+}
+
+function resetAssetFilters() {
+  const input = document.getElementById('asset-filter-input');
+  const tagSel = document.getElementById('asset-filter-tag');
+  const vulnSel = document.getElementById('asset-filter-vuln');
+  const profSel = document.getElementById('asset-filter-profile');
+  if (input) input.value = '';
+  if (tagSel) tagSel.value = 'all';
+  if (vulnSel) vulnSel.value = 'all';
+  if (profSel) profSel.value = 'all';
+  renderAssetsTable();
+}
+
+function parseIpv4Numeric(targetStr) {
+  if (!targetStr) return null;
+  const ipOnly = targetStr.split('/')[0].trim();
+  const parts = ipOnly.split('.').map(Number);
+  if (parts.length === 4 && parts.every((n) => !Number.isNaN(n) && n >= 0 && n <= 255)) {
+    return ((parts[0] << 24) >>> 0) + (parts[1] << 16) + (parts[2] << 8) + parts[3];
+  }
+  return null;
+}
+
+function getAssetVulnScore(asset) {
+  const vc = asset.vuln_counts || {};
+  return (
+    (vc.critical || 0) * 100000 +
+    (vc.high || 0) * 10000 +
+    (vc.medium || 0) * 1000 +
+    (vc.low || 0) * 100 +
+    (vc.info || 0) * 10 +
+    (vc.total || 0)
+  );
 }
 
 function renderAssetsTable() {
   const tbody = document.getElementById('assets-table-body');
-  const filter = (document.getElementById('asset-filter-input')?.value || '').toLowerCase().trim();
+  const countLabel = document.getElementById('asset-table-count-label');
+  const resetBtn = document.getElementById('btn-reset-asset-filters');
+
+  const textFilter = (document.getElementById('asset-filter-input')?.value || '').toLowerCase().trim();
+  const tagFilter = document.getElementById('asset-filter-tag')?.value || 'all';
+  const vulnFilter = document.getElementById('asset-filter-vuln')?.value || 'all';
+  const profFilter = document.getElementById('asset-filter-profile')?.value || 'all';
+
+  const isFiltered = textFilter || tagFilter !== 'all' || vulnFilter !== 'all' || profFilter !== 'all';
+  if (resetBtn) {
+    if (isFiltered) {
+      resetBtn.classList.remove('hidden');
+    } else {
+      resetBtn.classList.add('hidden');
+    }
+  }
 
   const filtered = state.assets.filter((a) => {
-    if (!filter) return true;
-    const targetMatch = (a.target || '').toLowerCase().includes(filter);
-    const hostMatch = (a.hostname || '').toLowerCase().includes(filter);
-    const vendorMatch = (a.vendor || '').toLowerCase().includes(filter);
-    const tagMatch = (a.tags || []).some((t) => t.toLowerCase().includes(filter));
-    const portMatch = (a.open_ports || []).some(
-      (p) => String(p.port).includes(filter) || (p.service_name || '').toLowerCase().includes(filter)
-    );
-    return targetMatch || hostMatch || vendorMatch || tagMatch || portMatch;
+    // 1. Text filter
+    if (textFilter) {
+      const targetMatch = (a.target || '').toLowerCase().includes(textFilter);
+      const hostMatch = (a.hostname || '').toLowerCase().includes(textFilter);
+      const vendorMatch = (a.vendor || '').toLowerCase().includes(textFilter);
+      const macMatch = (a.mac_address || '').toLowerCase().includes(textFilter);
+      const tagMatch = (a.tags || []).some((t) => t.toLowerCase().includes(textFilter));
+      const portMatch = (a.open_ports || []).some(
+        (p) =>
+          String(p.port).includes(textFilter) ||
+          (p.service_name || '').toLowerCase().includes(textFilter) ||
+          (p.service_product || '').toLowerCase().includes(textFilter)
+      );
+      if (!targetMatch && !hostMatch && !vendorMatch && !macMatch && !tagMatch && !portMatch) {
+        return false;
+      }
+    }
+
+    // 2. Tag filter
+    if (tagFilter !== 'all') {
+      const hasTag = (a.tags || []).some((t) => t.toLowerCase() === tagFilter.toLowerCase());
+      if (!hasTag) return false;
+    }
+
+    // 3. Vulnerability status filter
+    if (vulnFilter !== 'all') {
+      const vc = a.vuln_counts || {};
+      const critHigh = (vc.critical || 0) + (vc.high || 0);
+      const total = vc.total || 0;
+      if (vulnFilter === 'has_vulns' && total === 0) return false;
+      if (vulnFilter === 'crit_high' && critHigh === 0) return false;
+      if (vulnFilter === 'clean' && total > 0) return false;
+    }
+
+    // 4. Scan profile filter
+    if (profFilter !== 'all') {
+      if ((a.default_profile || 'standard').toLowerCase() !== profFilter.toLowerCase()) {
+        return false;
+      }
+    }
+
+    return true;
   });
+
+  // Apply sorting
+  const { column, order } = state.assetSort;
+  filtered.sort((a, b) => {
+    let cmp = 0;
+    if (column === 'target') {
+      const numA = parseIpv4Numeric(a.target);
+      const numB = parseIpv4Numeric(b.target);
+      if (numA !== null && numB !== null) {
+        cmp = numA - numB;
+      } else {
+        cmp = (a.target || '').localeCompare(b.target || '');
+      }
+    } else if (column === 'vendor') {
+      const vA = (a.vendor || a.mac_address || '').toLowerCase();
+      const vB = (b.vendor || b.mac_address || '').toLowerCase();
+      cmp = vA.localeCompare(vB);
+    } else if (column === 'ports') {
+      const cntA = a.open_port_count !== undefined ? a.open_port_count : (a.open_ports || []).length;
+      const cntB = b.open_port_count !== undefined ? b.open_port_count : (b.open_ports || []).length;
+      cmp = cntA - cntB;
+    } else if (column === 'vulns') {
+      const scA = getAssetVulnScore(a);
+      const scB = getAssetVulnScore(b);
+      cmp = scA - scB;
+    } else if (column === 'last_scanned') {
+      const timeA = a.last_scanned_at ? new Date(a.last_scanned_at).getTime() : 0;
+      const timeB = b.last_scanned_at ? new Date(b.last_scanned_at).getTime() : 0;
+      cmp = timeA - timeB;
+    }
+    return order === 'asc' ? cmp : -cmp;
+  });
+
+  if (countLabel) {
+    countLabel.textContent = isFiltered
+      ? `${filtered.length} of ${state.assets.length} assets`
+      : `${state.assets.length} asset${state.assets.length === 1 ? '' : 's'}`;
+  }
 
   if (filtered.length === 0) {
     tbody.innerHTML = `
       <tr>
         <td colspan="7" class="px-5 py-12 text-center text-slate-400">
           <div class="max-w-md mx-auto space-y-2">
-            <p class="font-semibold text-slate-200">No monitored assets found</p>
-            <p class="text-xs text-slate-400">Click "Discover Subnet" to sweep your LAN, or enter targets in the Quick Scan bar above.</p>
+            <p class="font-semibold text-slate-200">${isFiltered ? 'No assets match the active filter' : 'No monitored assets found'}</p>
+            <p class="text-xs text-slate-400">${
+              isFiltered
+                ? 'Try adjusting your search query, tag, or security filter above.'
+                : 'Click "Discover Subnet" to sweep your LAN, or enter targets in the Quick Scan bar above.'
+            }</p>
+            ${
+              isFiltered
+                ? `<button onclick="resetAssetFilters()" class="mt-2 px-3 py-1 rounded-lg text-xs font-semibold bg-cyan-500/20 text-cyan-300 border border-cyan-500/30">Clear Active Filters</button>`
+                : ''
+            }
           </div>
         </td>
       </tr>
@@ -415,7 +522,7 @@ function renderAssetsTable() {
       const portsHtml =
         asset.open_ports && asset.open_ports.length > 0
           ? asset.open_ports
-              .slice(0, 8)
+              .slice(0, 10)
               .map((p) => {
                 const webUrl = getPortWebUrl(asset.target, p);
                 const titleInfo = [p.service_product, p.service_version, p.extra_info].filter(Boolean).join(' ');
@@ -433,8 +540,8 @@ function renderAssetsTable() {
                 )}</span></span>`;
               })
               .join(' ') +
-            (asset.open_ports.length > 8
-              ? ` <span class="text-xs text-slate-400">+${asset.open_ports.length - 8} more</span>`
+            (asset.open_ports.length > 10
+              ? ` <span class="text-xs text-slate-400 font-mono">+${asset.open_ports.length - 10} more</span>`
               : '')
           : `<span class="text-xs text-slate-500">No open ports</span>`;
 
@@ -466,10 +573,10 @@ function renderAssetsTable() {
 
       return `
         <tr class="hover:bg-slate-850/60 transition">
-          <td class="px-4 py-4 align-top">
+          <td class="px-4 py-3.5 align-top">
             <input type="checkbox" ${isChecked} onchange="toggleAssetSelection('${escapeHtml(asset.target)}', this.checked)" class="rounded bg-slate-950 border-slate-700 text-cyan-500" />
           </td>
-          <td class="px-4 py-4 align-top max-w-[220px] sm:max-w-[280px]">
+          <td class="px-4 py-3.5 align-top min-w-[200px] max-w-[280px] sm:max-w-[340px]">
             <div class="flex flex-wrap items-center gap-1.5">
               <span class="font-bold text-white font-mono break-all" title="${escapeHtml(asset.target)}">${escapeHtml(asset.target)}</span>
               <span class="text-[10px] uppercase px-1.5 py-0.5 rounded bg-slate-800 text-slate-400 border border-slate-700 shrink-0">${escapeHtml(
@@ -478,13 +585,13 @@ function renderAssetsTable() {
             </div>
             ${
               asset.hostname
-                ? `<div class="text-xs text-slate-400 mt-0.5 break-all" title="${escapeHtml(asset.hostname)}">${escapeHtml(asset.hostname)}</div>`
+                ? `<div class="text-xs text-cyan-300 mt-0.5 break-all font-mono leading-snug" title="${escapeHtml(asset.hostname)}">${escapeHtml(asset.hostname)}</div>`
                 : ''
             }
             ${tagsHtml ? `<div class="flex flex-wrap gap-1 mt-1.5">${tagsHtml}</div>` : ''}
           </td>
 
-          <td class="px-4 py-4 align-top max-w-[170px]">
+          <td class="px-4 py-3.5 align-top min-w-[140px] max-w-[190px]">
             ${
               asset.mac_address
                 ? `<div class="text-xs font-mono text-slate-200 whitespace-nowrap">${escapeHtml(asset.mac_address)}</div>`
@@ -492,24 +599,24 @@ function renderAssetsTable() {
             }
             ${
               asset.vendor
-                ? `<div class="text-[11px] text-slate-400 mt-0.5 break-words" title="${escapeHtml(asset.vendor)}">${escapeHtml(asset.vendor)}</div>`
+                ? `<div class="text-[11px] text-slate-400 mt-0.5 break-words leading-tight" title="${escapeHtml(asset.vendor)}">${escapeHtml(asset.vendor)}</div>`
                 : ''
             }
           </td>
 
-          <td class="px-4 py-4 align-top max-w-xs">
+          <td class="px-4 py-3.5 align-top max-w-sm">
             <div class="flex flex-wrap gap-1">${portsHtml}</div>
           </td>
 
-          <td class="px-4 py-4 align-top">
+          <td class="px-4 py-3.5 align-top min-w-[150px]">
             <div class="flex flex-wrap gap-1">${vulnsHtml}</div>
           </td>
 
-          <td class="px-4 py-4 align-top whitespace-nowrap">
+          <td class="px-4 py-3.5 align-top whitespace-nowrap">
             ${lastScannedHtml}
           </td>
 
-          <td class="px-5 py-4 align-top text-right whitespace-nowrap">
+          <td class="px-5 py-3.5 align-top text-right whitespace-nowrap">
             <div class="inline-flex items-center gap-1.5">
               <button
                 onclick="scanSavedAsset('${escapeHtml(asset.target)}', '${escapeHtml(asset.default_profile || 'standard')}')"

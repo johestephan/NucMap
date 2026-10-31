@@ -2,7 +2,7 @@
 set -euo pipefail
 
 # ==============================================================================
-# NucMap v0.1.1 — Standalone LXC / VM Installer & Setup Script
+# NucMap v0.1.2 — Standalone LXC / VM Installer & Setup Script
 # Repository: https://github.com/johestephan/NucMap
 # License:    MIT
 # Target OS:  Debian 12 / 13 or Ubuntu 22.04 / 24.04 (LXC or VM)
@@ -28,7 +28,7 @@ if [[ "${1:-}" == "--remote" || "${1:-}" == "--push" ]]; then
     exit 1
   fi
   REMOTE_HOST="${2}"
-  echo "[*] Pushing NucMap v0.1.1 project files to ${REMOTE_HOST}:${APP_DIR}..."
+  echo "[*] Pushing NucMap v0.1.2 project files to ${REMOTE_HOST}:${APP_DIR}..."
   ssh "${REMOTE_HOST}" "mkdir -p ${APP_DIR}"
   tar --exclude='node_modules' --exclude='.git' --exclude='data' -czf - -C "${SCRIPT_DIR}" . \
     | ssh "${REMOTE_HOST}" "tar -xzf - -C ${APP_DIR} && chmod +x ${APP_DIR}/installer.sh && ${APP_DIR}/installer.sh"
@@ -41,7 +41,7 @@ if [[ "${EUID}" -ne 0 ]]; then
 fi
 
 echo "=================================================================="
-echo "  NucMap v0.1.1 — ASM & Vulnerability Scanner Setup"
+echo "  NucMap v0.1.2 — ASM & Vulnerability Scanner Setup"
 echo "=================================================================="
 
 # 1. Install OS packages
@@ -177,10 +177,23 @@ systemctl restart "${SERVICE_NAME}"
 sleep 2
 systemctl --no-pager --full status "${SERVICE_NAME}" || true
 
+# 8. Install in-container update command (/usr/local/bin/update)
+cat << 'EOF' > /usr/local/bin/update
+#!/usr/bin/env bash
+set -euo pipefail
+echo "=================================================================="
+echo "  Updating NucMap (preserving database in /var/lib/nucmap)..."
+echo "=================================================================="
+bash -c "$(curl -fsSL https://raw.githubusercontent.com/johestephan/NucMap/main/installer.sh)"
+EOF
+chmod +x /usr/local/bin/update
+ln -sf /usr/local/bin/update /usr/local/bin/nucmap-update
+
 HOST_IP="$(hostname -I | awk "{print \$1}")"
 echo "=================================================================="
-echo "  NucMap v0.1.1 installation complete!"
+echo "  NucMap v0.1.2 installation complete!"
 echo "  Web UI:   http://${HOST_IP}:3000  (and http://${HOST_IP})"
 echo "  Database: ${DATA_DIR}/nucmap.db"
 echo "  Service:  systemctl status ${SERVICE_NAME}"
+echo "  Update:   run 'update' inside container or via pct exec"
 echo "=================================================================="
