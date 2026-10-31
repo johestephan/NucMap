@@ -213,6 +213,7 @@ NucMap/
 2. **Strict Target & Flag Allowlists**: All scan targets (RFC-1123 FQDNs, IPv4, CIDR ranges) and custom Nmap profile flags are validated against strict allowlists and spawned via Node's `child_process.spawn(..., { shell: false })` to prevent shell or argument injection.
 3. **Built-in Rate Limiting & Security Headers**: Express enforces per-IP API rate limiting (`NUCMAP_RATE_LIMIT`, default `240` req/min) and strict security headers (`X-Frame-Options: DENY`, `X-Content-Type-Options: nosniff`, `Referrer-Policy: no-referrer`).
 4. **Unprivileged Container Fallback**: If `nmap -sS` (SYN scan) or raw ARP discovery fails due to missing raw socket capabilities inside an unprivileged container, NucMap automatically falls back to TCP Connect (`-sT`) and kernel `/proc/net/arp` + IEEE OUI vendor lookup.
+5. **100% Offline / Self-Hosted Assets**: All styling (Tailwind CSS engine) and UI icons are served directly from the local container/host (`/tailwind.js`). The Web UI makes zero requests to third-party CDNs, fonts, or external services, ensuring full functionality in air-gapped environments or networks with Pi-hole and AdGuard Home DNS blockers.
 
 ---
 

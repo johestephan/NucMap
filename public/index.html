@@ -4,7 +4,12 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>NucMap v0.1.1 — ASM &amp; Vulnerability Scanner</title>
-  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="/tailwind.js"></script>
+  <script>
+    if (typeof tailwind === 'undefined') {
+      document.write('<script src="https://cdn.tailwindcss.com"><\/script>');
+    }
+  </script>
   <script>
     tailwind.config = {
       darkMode: 'class',
