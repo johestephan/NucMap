@@ -1,4 +1,5 @@
 const fs = require('fs');
+const os = require('os');
 const path = require('path');
 const { spawn } = require('child_process');
 const db = require('./db');
@@ -324,11 +325,111 @@ function runProcess(cmd, args, { scanId = null, onStdoutLine, onStderrLine, time
   });
 }
 
-// Fast Subnet Ping/ARP Sweep (-sn) for Host Discovery
-async function discoverSubnetHosts(rawCidr) {
+// Auto-detect local IPv4 subnets from host/container network interfaces
+function detectLocalSubnets() {
+  const nets = os.networkInterfaces();
+  const results = [];
+  const seenCidrs = new Set();
+
+  for (const [iface, addrs] of Object.entries(nets)) {
+    for (const addr of addrs || []) {
+      if (addr.internal || addr.family !== 'IPv4' || !addr.address) continue;
+      const parts = addr.address.split('.');
+      if (parts.length === 4) {
+        const cidr24 = `${parts[0]}.${parts[1]}.${parts[2]}.0/24`;
+        if (!seenCidrs.has(cidr24)) {
+          seenCidrs.add(cidr24);
+          results.push({
+            interface: iface,
+            address: addr.address,
+            cidr: cidr24
+          });
+        }
+      }
+    }
+  }
+  return results;
+}
+
+// Enhanced Nmap Subnet Host Discovery ('fast' ARP/ICMP/TCP-Ping or 'port_sweep' Top-25 Common Ports)
+async function discoverSubnetHosts(rawCidr, { mode = 'fast' } = {}) {
   const cidr = sanitizeAndValidateTarget(rawCidr);
-  const args = ['-sn', '-T4', '-oX', '-', '--', cidr];
-  const res = await runProcess(NMAP_BIN, args, { timeoutMs: 120 * 1000 });
+  let res;
+
+  if (mode === 'port_sweep') {
+    const portSweepArgs = [
+      '-sT',
+      '-Pn',
+      '-n',
+      '-T4',
+      '--top-ports',
+      '25',
+      '--open',
+      '--min-parallelism',
+      '100',
+      '--min-hostgroup',
+      '64',
+      '--max-retries',
+      '1',
+      '--host-timeout',
+      '20s',
+      '-oX',
+      '-',
+      '--',
+      cidr
+    ];
+    res = await runProcess(NMAP_BIN, portSweepArgs, { timeoutMs: 180 * 1000 });
+  } else {
+    const fastArgs = [
+      '-sn',
+      '-PE',
+      '-PP',
+      '-PS21,22,23,25,53,80,111,139,443,445,3306,3389,5432,8006,8080,8443',
+      '-PA80,443',
+      '-n',
+      '-T4',
+      '--min-parallelism',
+      '64',
+      '--min-hostgroup',
+      '64',
+      '--max-retries',
+      '1',
+      '--host-timeout',
+      '15s',
+      '-oX',
+      '-',
+      '--',
+      cidr
+    ];
+    res = await runProcess(NMAP_BIN, fastArgs, { timeoutMs: 120 * 1000 });
+
+    if (
+      res.code !== 0 &&
+      !res.stdout.includes('<nmaprun') &&
+      /root privileges|raw|socket|Operation not permitted|dnet: Failed/i.test(res.stderr)
+    ) {
+      const unprivArgs = [
+        '-sn',
+        '-PS22,80,139,443,445,3389,8006,8080,8443',
+        '-n',
+        '-T4',
+        '--min-parallelism',
+        '64',
+        '--min-hostgroup',
+        '64',
+        '--max-retries',
+        '1',
+        '--host-timeout',
+        '15s',
+        '-oX',
+        '-',
+        '--',
+        cidr
+      ];
+      res = await runProcess(NMAP_BIN, unprivArgs, { timeoutMs: 120 * 1000 });
+    }
+  }
+
   if (res.code !== 0 && !res.stdout.includes('<nmaprun')) {
     throw new Error(`Nmap discovery failed: ${res.stderr || 'Unknown error'}`);
   }
@@ -478,6 +579,7 @@ async function executeNucleiStage(scanId, target, urls, profileConfig) {
 const scanQueue = [];
 const activeScanIds = new Set();
 const cancelledScanIds = new Set();
+const scanStageOptions = new Map(); // scanId -> { stage_mode: 'full' | 'nmap_only' | 'nuclei_only', only_port: null, is_rerun: false }
 
 function getMaxConcurrency() {
   const meta = db.getSystemMeta('max_concurrency');
@@ -519,6 +621,7 @@ function pumpScanPool() {
       .finally(() => {
         activeScanIds.delete(scanId);
         cancelledScanIds.delete(scanId);
+        scanStageOptions.delete(scanId);
         pumpScanPool();
       });
   }
@@ -555,6 +658,10 @@ async function runScanPipeline(scanId) {
   const scan = db.getScanById(scanId);
   if (!scan) return;
 
+  const opts = scanStageOptions.get(scanId) || { stage_mode: 'full', only_port: null, is_rerun: false };
+  const stageMode = opts.stage_mode || 'full';
+  const onlyPort = opts.only_port ? Number(opts.only_port) : null;
+
   const profiles = loadProfiles();
   const profileKey = (scan.profile || 'standard').toLowerCase();
   const profileConfig = profiles[profileKey] || profiles.standard || Object.values(profiles)[0];
@@ -568,99 +675,142 @@ async function runScanPipeline(scanId) {
       asset_id: scan.asset_id,
       target,
       profile: profileConfig.id,
+      stage_mode: stageMode,
+      only_port: onlyPort,
       ports: profileConfig.ports
     },
     'info'
   );
 
-  // Stage 1: Nmap Discovery & Enumeration
-  db.updateScanStatus(scanId, 'running_nmap');
-  let nmapResult;
-  try {
-    nmapResult = await executeNmapStage(scanId, target, profileConfig);
-  } catch (err) {
-    if (cancelledScanIds.has(scanId)) return;
-    db.updateScanStatus(scanId, 'failed', {
-      error_log: `Stage 1 (Nmap) Error: ${err.message}`
-    });
-    syslog.logEvent(
-      'SCAN_FAILED',
-      { scan_id: scanId, target, stage: 'nmap', error: err.message },
-      'error'
-    );
-    return;
-  }
+  let activePorts = scan.ports || [];
 
-  if (cancelledScanIds.has(scanId)) return;
-
-  const parsedNmap = await parser.parseNmapXml(nmapResult.stdout, target);
-
-  // Inspect SSL/TLS certificates on discovered HTTPS/SSL ports
-  let tlsFindings = [];
-  try {
-    tlsFindings = await parser.inspectTlsCertificates(target, parsedNmap.ports);
-  } catch (_) {}
-
-  db.updateAssetMetadata(scan.asset_id, {
-    hostname: parsedNmap.hostname,
-    mac_address: parsedNmap.mac_address,
-    vendor: parsedNmap.vendor,
-    last_scanned_at: new Date().toISOString().replace('T', ' ').slice(0, 19)
-  });
-
-  db.insertScanPorts(scanId, parsedNmap.ports);
-
-  // Insert any Nmap NSE vulscan findings and TLS expiry findings right away
-  const stage1Findings = [...(parsedNmap.nse_vulns || []), ...tlsFindings];
-  if (stage1Findings.length > 0) {
-    db.insertScanVulns(scanId, stage1Findings);
-  }
-
-  for (const p of parsedNmap.ports) {
-    syslog.logEvent(
-      'PORT_DISCOVERED',
-      {
-        scan_id: scanId,
-        target,
-        port: p.port,
-        protocol: p.protocol,
-        service_name: p.service_name,
-        service_product: p.service_product,
-        service_version: p.service_version,
-        extra_info: p.extra_info
-      },
-      'info'
-    );
-  }
-
-  // Stage 2: Nuclei Targeted Verification
-  db.updateScanStatus(scanId, 'running_nuclei', {
-    raw_nmap_xml: nmapResult.stdout
-  });
-
-  const nucleiUrls = parser.buildNucleiTargets(target, parsedNmap.ports, profileConfig);
-
-  let nucleiRawJsonl = '';
-  let nucleiWarning = null;
-  if (nucleiUrls.length > 0 && !cancelledScanIds.has(scanId)) {
+  // Stage 1: Nmap Discovery & Enumeration (runs in 'full' and 'nmap_only' modes)
+  if (stageMode !== 'nuclei_only') {
+    db.updateScanStatus(scanId, 'running_nmap', { error_log: null });
+    let nmapResult;
     try {
-      const nucleiResult = await executeNucleiStage(scanId, target, nucleiUrls, profileConfig);
-      nucleiRawJsonl = nucleiResult.stdout || '';
-      if (nucleiResult.code !== 0 && nucleiResult.stderr) {
-        nucleiWarning = `Nuclei exited with code ${nucleiResult.code}: ${nucleiResult.stderr.trim()}`;
-      }
+      nmapResult = await executeNmapStage(scanId, target, profileConfig);
     } catch (err) {
       if (cancelledScanIds.has(scanId)) return;
-      nucleiWarning = `Stage 2 (Nuclei) Warning: ${err.message}`;
+      db.updateScanStatus(scanId, 'failed', {
+        error_log: `Stage 1 (Nmap) Error: ${err.message}`
+      });
+      syslog.logEvent(
+        'SCAN_FAILED',
+        { scan_id: scanId, target, stage: 'nmap', error: err.message },
+        'error'
+      );
+      return;
     }
+
+    if (cancelledScanIds.has(scanId)) return;
+
+    const parsedNmap = await parser.parseNmapXml(nmapResult.stdout, target);
+
+    let tlsFindings = [];
+    try {
+      tlsFindings = await parser.inspectTlsCertificates(target, parsedNmap.ports);
+    } catch (_) {}
+
+    db.updateAssetMetadata(scan.asset_id, {
+      hostname: parsedNmap.hostname,
+      mac_address: parsedNmap.mac_address,
+      vendor: parsedNmap.vendor,
+      last_scanned_at: new Date().toISOString().replace('T', ' ').slice(0, 19)
+    });
+
+    if (opts.is_rerun) {
+      db.deleteScanPorts(scanId);
+      if (stageMode === 'nmap_only') {
+        db.deleteScanVulns(scanId, { onlyNuclei: false });
+      } else {
+        db.deleteScanVulns(scanId);
+      }
+    }
+
+    db.insertScanPorts(scanId, parsedNmap.ports);
+    activePorts = parsedNmap.ports;
+
+    const stage1Findings = [...(parsedNmap.nse_vulns || []), ...tlsFindings];
+    if (stage1Findings.length > 0) {
+      db.insertScanVulns(scanId, stage1Findings);
+    }
+
+    for (const p of parsedNmap.ports) {
+      syslog.logEvent(
+        'PORT_DISCOVERED',
+        {
+          scan_id: scanId,
+          target,
+          port: p.port,
+          protocol: p.protocol,
+          service_name: p.service_name,
+          service_product: p.service_product,
+          service_version: p.service_version,
+          extra_info: p.extra_info
+        },
+        'info'
+      );
+    }
+
+    if (stageMode === 'nmap_only') {
+      db.updateScanStatus(scanId, 'completed', {
+        raw_nmap_xml: nmapResult.stdout,
+        error_log: null
+      });
+    } else {
+      db.updateScanStatus(scanId, 'running_nuclei', {
+        raw_nmap_xml: nmapResult.stdout
+      });
+    }
+  } else {
+    // 'nuclei_only' mode: reuse existing ports on this scan or copy from previous completed scan
+    if (!activePorts || activePorts.length === 0) {
+      const prevScan = db.getPreviousCompletedScan(scan.asset_id, scanId + 1);
+      if (prevScan) {
+        const prevPorts = db.getScanPorts(prevScan.id);
+        if (prevPorts.length > 0) {
+          db.insertScanPorts(scanId, prevPorts);
+          activePorts = prevPorts;
+        }
+      }
+    }
+
+    // Clear previous Nuclei findings (either for the single port or all ports on this scan)
+    db.deleteScanVulns(scanId, { onlyNuclei: true, port: onlyPort });
+    db.updateScanStatus(scanId, 'running_nuclei', { error_log: null });
   }
 
-  if (cancelledScanIds.has(scanId)) return;
+  // Stage 2: Nuclei Targeted Verification (runs in 'full' and 'nuclei_only' modes)
+  let nucleiRawJsonl = '';
+  let nucleiWarning = null;
+  if (stageMode !== 'nmap_only') {
+    const portsForNuclei = onlyPort
+      ? activePorts.filter((p) => Number(p.port) === onlyPort)
+      : activePorts;
 
-  db.updateScanStatus(scanId, 'completed', {
-    raw_nuclei_jsonl: nucleiRawJsonl,
-    error_log: nucleiWarning
-  });
+    const nucleiUrls = parser.buildNucleiTargets(target, portsForNuclei, profileConfig);
+
+    if (nucleiUrls.length > 0 && !cancelledScanIds.has(scanId)) {
+      try {
+        const nucleiResult = await executeNucleiStage(scanId, target, nucleiUrls, profileConfig);
+        nucleiRawJsonl = nucleiResult.stdout || '';
+        if (nucleiResult.code !== 0 && nucleiResult.stderr) {
+          nucleiWarning = `Nuclei exited with code ${nucleiResult.code}: ${nucleiResult.stderr.trim()}`;
+        }
+      } catch (err) {
+        if (cancelledScanIds.has(scanId)) return;
+        nucleiWarning = `Stage 2 (Nuclei) Warning: ${err.message}`;
+      }
+    }
+
+    if (cancelledScanIds.has(scanId)) return;
+
+    db.updateScanStatus(scanId, 'completed', {
+      raw_nuclei_jsonl: nucleiRawJsonl,
+      error_log: nucleiWarning
+    });
+  }
 
   db.updateAssetMetadata(scan.asset_id, {
     last_scanned_at: new Date().toISOString().replace('T', ' ').slice(0, 19)
@@ -672,7 +822,6 @@ async function runScanPipeline(scanId) {
     if (diffResult && diffResult.summary && diffResult.summary.has_changes) {
       const overridesMap = db.getAssetOverridesMap(scan.asset_id);
       for (const ev of diffResult.summary.events || []) {
-        // Skip alerting on NEW_VULN if the finding is already marked accepted_risk or false_positive
         if (ev.type === 'NEW_VULN') {
           const ov = overridesMap.get(`${ev.template_id}|${ev.port || 0}`);
           if (ov && (ov.status === 'accepted_risk' || ov.status === 'false_positive')) {
@@ -703,6 +852,7 @@ async function runScanPipeline(scanId) {
       scan_id: scanId,
       target,
       profile: profileConfig.id,
+      stage_mode: stageMode,
       open_ports_count: (finalScan?.ports || []).length,
       vulns_count: (finalScan?.vulns || []).length,
       drift_changes: diffResult?.summary?.total_changes || 0
@@ -711,7 +861,43 @@ async function runScanPipeline(scanId) {
   );
 }
 
-function triggerScan({ target, targets, profile = 'standard', save_asset = true, tags = [], concurrency }) {
+function rerunScanStage(scanId, { stage = 'nuclei', port = null } = {}) {
+  const numId = Number(scanId);
+  const scan = db.getScanById(numId);
+  if (!scan) {
+    throw new Error('Scan not found.');
+  }
+  if (activeScanIds.has(numId) || scanQueue.includes(numId)) {
+    throw new Error('This scan is already running.');
+  }
+
+  const stageMode = stage === 'nmap' ? 'nmap_only' : stage === 'full' ? 'full' : 'nuclei_only';
+  scanStageOptions.set(numId, {
+    stage_mode: stageMode,
+    only_port: port ? Number(port) : null,
+    is_rerun: true
+  });
+
+  db.updateScanStatus(numId, 'queued', { error_log: null });
+  enqueueScan(numId);
+
+  return {
+    ok: true,
+    scan_id: numId,
+    stage_mode: stageMode,
+    only_port: port ? Number(port) : null
+  };
+}
+
+function triggerScan({
+  target,
+  targets,
+  profile = 'standard',
+  stage_mode = 'full',
+  save_asset = true,
+  tags = [],
+  concurrency
+}) {
   if (concurrency !== undefined) {
     setMaxConcurrency(concurrency);
   }
@@ -733,6 +919,7 @@ function triggerScan({ target, targets, profile = 'standard', save_asset = true,
   const profiles = loadProfiles();
   const profileKey = (profile || 'standard').toLowerCase();
   const validProfile = profiles[profileKey] ? profileKey : 'standard';
+  const cleanStageMode = ['full', 'nmap_only', 'nuclei_only'].includes(stage_mode) ? stage_mode : 'full';
 
   const jobs = [];
   for (const rawT of targetList) {
@@ -745,6 +932,11 @@ function triggerScan({ target, targets, profile = 'standard', save_asset = true,
     });
 
     const scanId = db.createScan(asset.id, validProfile);
+    scanStageOptions.set(scanId, {
+      stage_mode: cleanStageMode,
+      only_port: null,
+      is_rerun: false
+    });
     enqueueScan(scanId);
 
     jobs.push({
@@ -752,6 +944,7 @@ function triggerScan({ target, targets, profile = 'standard', save_asset = true,
       asset_id: asset.id,
       target: asset.target,
       profile: validProfile,
+      stage_mode: cleanStageMode,
       status: 'queued'
     });
   }
@@ -761,6 +954,7 @@ function triggerScan({ target, targets, profile = 'standard', save_asset = true,
     asset_id: jobs[0].asset_id,
     target: jobs[0].target,
     profile: validProfile,
+    stage_mode: cleanStageMode,
     status: 'queued',
     jobs,
     scan_ids: jobs.map((j) => j.scan_id)
@@ -990,10 +1184,12 @@ module.exports = {
   loadProfiles,
   validateAndBuildProfile,
   sanitizeAndValidateTarget,
+  detectLocalSubnets,
   discoverSubnetHosts,
   getMaxConcurrency,
   setMaxConcurrency,
   triggerScan,
+  rerunScanStage,
   cancelScan,
   triggerBulkDiffRescan,
   executeScheduleJob,

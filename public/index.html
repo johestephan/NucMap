@@ -104,7 +104,7 @@
 
       <!-- Quick Scan Input Bar (Supports 1 or up to 5 synchronous targets) -->
       <form id="quick-scan-form" onsubmit="handleQuickScanSubmit(event)" class="mt-3 pt-3 border-t border-slate-800/80 grid grid-cols-1 md:grid-cols-12 gap-2.5 items-center">
-        <div class="md:col-span-4 relative">
+        <div class="md:col-span-3 relative">
           <div class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-slate-500">
             <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
               <path stroke-linecap="round" stroke-linejoin="round" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
@@ -114,7 +114,7 @@
             type="text"
             id="scan-target-input"
             required
-            placeholder="Target(s): e.g. 192.168.1.10, 192.168.1.20, host.example.internal (up to 5 synchronous)"
+            placeholder="Target(s): e.g. 192.168.1.10, host.example.internal"
             class="w-full pl-9 pr-3 py-2 text-sm rounded-lg bg-slate-950 border border-slate-700/80 text-slate-100 placeholder-slate-500 focus:outline-none focus:border-cyan-500 focus:ring-1 focus:ring-cyan-500"
           />
         </div>
@@ -135,11 +135,23 @@
         </div>
 
         <div class="md:col-span-2">
+          <select
+            id="scan-stage-mode"
+            title="Select full pipeline or run only a specific stage"
+            class="w-full px-2.5 py-2 text-xs rounded-lg bg-slate-950 border border-slate-700/80 text-cyan-300 focus:outline-none focus:border-cyan-500"
+          >
+            <option value="full" selected>Full: Nmap + Nuclei</option>
+            <option value="nmap_only">Stage 1 Only: Ports &amp; TLS</option>
+            <option value="nuclei_only">Stage 2 Only: Nuclei (Saved Ports)</option>
+          </select>
+        </div>
+
+        <div class="md:col-span-1">
           <input
             type="text"
             id="scan-tags-input"
-            placeholder="Tags: LAN, IoT, DMZ"
-            class="w-full px-3 py-2 text-sm rounded-lg bg-slate-950 border border-slate-700/80 text-slate-100 placeholder-slate-500 focus:outline-none focus:border-cyan-500"
+            placeholder="Tags: LAN"
+            class="w-full px-2.5 py-2 text-sm rounded-lg bg-slate-950 border border-slate-700/80 text-slate-100 placeholder-slate-500 focus:outline-none focus:border-cyan-500"
           />
         </div>
 
@@ -374,15 +386,21 @@
                   <p id="scan-detail-meta" class="text-xs text-slate-400 mt-1"></p>
                 </div>
 
-                <div class="flex items-center gap-2">
+                <div class="flex flex-wrap items-center gap-2">
                   <button id="btn-cancel-scan" onclick="cancelCurrentScan()" class="hidden px-3 py-1.5 rounded-lg text-xs font-semibold bg-rose-500/20 hover:bg-rose-500/30 text-rose-300 border border-rose-500/40">
                     Stop / Cancel Scan
                   </button>
                   <button id="btn-promote-transient" onclick="promoteCurrentScanAsset()" class="hidden px-3 py-1.5 rounded-lg text-xs font-semibold bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 border border-emerald-500/30">
                     + Save as Monitored Asset
                   </button>
-                  <button onclick="rescanCurrentTarget()" class="px-3 py-1.5 rounded-lg text-xs font-semibold bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700">
-                    Rescan Target
+                  <button onclick="rerunCurrentScanStage('nmap')" title="Re-run only Stage 1 (Nmap + TLS + NSE)" class="px-2.5 py-1.5 rounded-lg text-xs font-semibold bg-cyan-500/15 hover:bg-cyan-500/25 text-cyan-300 border border-cyan-500/30">
+                    ↻ Redo Stage 1 (Nmap)
+                  </button>
+                  <button onclick="rerunCurrentScanStage('nuclei')" title="Re-run only Stage 2 (Nuclei) on already discovered ports" class="px-2.5 py-1.5 rounded-lg text-xs font-semibold bg-amber-500/15 hover:bg-amber-500/25 text-amber-300 border border-amber-500/30">
+                    ↻ Redo Stage 2 (Nuclei)
+                  </button>
+                  <button onclick="rescanCurrentTarget()" title="Run full new scan (Stage 1 + Stage 2)" class="px-3 py-1.5 rounded-lg text-xs font-semibold bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700">
+                    ↻ Full Rescan
                   </button>
                 </div>
               </div>
@@ -908,6 +926,7 @@
       </div>
 
       <div class="p-5 space-y-4 flex-1 overflow-y-auto">
+        <div id="discover-detected-subnets" class="flex flex-wrap items-center gap-1.5 text-xs text-slate-400"></div>
         <form onsubmit="runSubnetDiscovery(event)" class="flex flex-col sm:flex-row gap-2.5">
           <input
             type="text"
@@ -917,18 +936,25 @@
             placeholder="Subnet CIDR (e.g. 192.168.1.0/24)"
             class="flex-1 px-3.5 py-2 text-sm font-mono rounded-lg bg-slate-950 border border-slate-700 text-white focus:outline-none focus:border-emerald-500"
           />
+          <select
+            id="discover-mode-select"
+            class="px-3 py-2 text-xs rounded-lg bg-slate-950 border border-slate-700 text-slate-200 focus:outline-none focus:border-emerald-500"
+          >
+            <option value="fast" selected>Fast Multi-Probe Sweep (-sn + TCP/ICMP + ARP)</option>
+            <option value="port_sweep">Deep Port-Assisted Sweep (-Pn Top 25 Ports)</option>
+          </select>
           <button
             type="submit"
             id="btn-run-discovery"
             class="px-5 py-2 rounded-lg text-xs font-semibold bg-emerald-500 hover:bg-emerald-400 text-slate-950 transition"
           >
-            Run ARP / Ping Sweep
+            Run Discovery Sweep
           </button>
         </form>
 
         <div id="discover-results-area" class="space-y-3">
           <div class="p-8 text-center text-xs text-slate-500 border border-slate-800 rounded-xl bg-slate-950/50">
-            Enter a subnet CIDR above (e.g. `192.168.1.0/24`) and click "Run ARP / Ping Sweep" to discover live hosts in ~3 seconds.
+            Select a detected local subnet chip or enter a CIDR above (e.g. `192.168.1.0/24`) and click "Run Discovery Sweep".
           </div>
         </div>
       </div>

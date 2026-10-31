@@ -10,14 +10,64 @@
 
 ---
 
+## 🚀 Proxmox VE LXC Installation (One-Line Helper Script)
+
+Run the following command directly in the **Proxmox VE Host Shell** (just like the Proxmox VE Community Scripts). It will create an unprivileged Debian LXC container (matching your host CPU architecture `amd64`/`arm64`), install `nmap`, `nuclei`, `vulscan`, and `nucmap`, and print the Web UI URL when finished:
+
+```bash
+bash -c "$(wget -qLO - https://raw.githubusercontent.com/johestephan/NucMap/main/proxmox/nucmap.sh)"
+```
+
+### Default LXC Container Specs
+| Resource | Default Value | Configurable in Advanced Mode |
+| :--- | :--- | :--- |
+| **OS Template** | Debian 12 / 13 Standard | Auto-downloaded via `pveam` |
+| **Container Type** | Unprivileged LXC | Yes |
+| **CPU** | 2 vCPU Cores | Yes (`CT_CORES`) |
+| **Memory** | 2048 MB RAM (512 MB Swap) | Yes (`CT_RAM`) |
+| **Disk** | 8 GB | Yes (`CT_DISK` / `CT_STORAGE`) |
+| **Network** | `vmbr0` (DHCP) | Yes (Static CIDR, Gateway, Bridge) |
+
+### Non-Interactive Proxmox Deployment
+```bash
+CT_ID=150 CT_HOSTNAME=nucmap CT_STORAGE=local-lvm bash -c "$(wget -qLO - https://raw.githubusercontent.com/johestephan/NucMap/main/proxmox/nucmap.sh)" -s -- --yes
+```
+
+---
+
+## 🔄 Updating NucMap (Existing Proxmox LXC or Standalone Host)
+
+All scan history, monitored assets, custom profiles, and schedules are stored in `/opt/nucmap/data/nucmap.db` and are **preserved** during updates.
+
+### Option A: Update from the Proxmox VE Host Shell
+Replace `<CTID>` (e.g. `107`) with your NucMap container ID:
+
+```bash
+pct exec <CTID> -- bash -c "curl -fsSL https://raw.githubusercontent.com/johestephan/NucMap/main/installer.sh | bash"
+```
+
+### Option B: Update Inside the LXC Container or VM Console
+Run inside the container/VM as `root`:
+
+```bash
+bash -c "$(curl -fsSL https://raw.githubusercontent.com/johestephan/NucMap/main/installer.sh)"
+```
+
+*(Note: To update **Nuclei Templates** and the **Nmap NSE Script Database** at any time without restarting, click the **"Signatures & Templates"** button in the top-right corner of the Web UI.)*
+
+---
+
 ## ✨ Key Features
 
-* **Two-Stage Scanning Pipeline**:
+* **Two-Stage Scanning Pipeline + Partial Stage Re-runs**:
   * **Stage 1 (`Nmap` + `TLS` + `Vulscan`)**: Fast port discovery, service banner & CPE fingerprinting (`-sV`), live SSL/TLS certificate expiry inspection, and optional offline `vulscan.nse` (`cve.csv`) banner CVE matching.
-  * **Stage 2 (`ProjectDiscovery Nuclei`)**: Automatically pipes discovered HTTP/HTTPS and network services into Nuclei with `-as` (automatic tech-stack Wappalyzer-based template selection) and rate-limiting tuned for homelab and enterprise networks.
+  * **Stage 2 (`ProjectDiscovery Nuclei`)**: Automatically pipes discovered HTTP/HTTPS and network services into Nuclei with `-as` (automatic Wappalyzer tech-stack template selection), `-ni` (no external OAST delays), and targeted exposure/default-login/CVE verification.
   * **Stage 3 (`Attack Surface Diffing`)**: Compares consecutive scans per asset and records `NEW_PORT`, `CLOSED_PORT`, `BANNER_CHANGED`, `NEW_VULN`, and `RESOLVED_VULN` drift events.
-* **Fast Subnet Discovery Wizard (`nmap -sn`)**:
-  * Perform 3-second Layer-2 ARP / ICMP ping sweeps across any CIDR (e.g., `192.168.1.0/24`) to discover live hosts, MAC addresses, hardware vendors, and hostnames, with one-click bulk import and parallel scanning.
+  * **Selective Stage Execution & Single-Port Re-verification**: Run the full pipeline, **Stage 1 Only** (ports & TLS), or **Stage 2 Only** (reuse saved ports), or click **↻ Redo Stage 1**, **↻ Redo Stage 2**, or **↻ Re-verify Port** on any individual port card without rescanning the entire host.
+* **Enhanced Nmap Subnet Discovery Wizard**:
+  * Auto-detects local network interfaces and subnet CIDRs for one-click selection.
+  * **Fast Multi-Probe Sweep**: Combines ICMP (`-PE -PP`), TCP SYN/ACK ping probes across 15 common service ports, kernel `/proc/net/arp` + IEEE OUI hardware vendor lookup (even inside unprivileged LXC containers), and parallel reverse DNS resolution.
+  * **Deep Port-Assisted Sweep (`-Pn --top-ports 25`)**: Discovers firewalled hosts that drop ICMP echo requests and previews their open ports before import.
 * **Custom Scan Profiles & Port Builder**:
   * Includes 7 built-in profiles (`web` [80,443], `web-backend` [80,443,3000,5000,8080...], `server` [SSH, LDAP, SMB, DB, Mail, DNS, Proxmox...], `quick`, `standard`, `deep`, `stealth`) plus a visual builder to create custom port profiles.
 * **Synchronous Parallel Scanning (`1x` – `5x` Hosts)**:
@@ -34,43 +84,11 @@
 
 ---
 
-## 🚀 Quick Deployment
-
-You can deploy **NucMap** in three ways:
-1. **Proxmox VE LXC Helper Script** (Community-Scripts style one-liner run on your Proxmox host)
-2. **Docker / Docker Compose**
-3. **Standalone Debian / Ubuntu Installer** (`installer.sh`)
-
----
-
-### Option 1: Proxmox VE LXC Helper Script (Recommended for Proxmox)
-
-Run the following command directly in the **Proxmox VE Host Shell** (just like the Proxmox VE Community Scripts). It will interactively (or with default settings) create an unprivileged Debian LXC container, install `nmap`, `nuclei`, `vulscan`, and `nucmap`, and print the Web UI URL when finished:
-
-```bash
-bash -c "$(wget -qLO - https://raw.githubusercontent.com/johestephan/NucMap/main/proxmox/nucmap.sh)"
-```
-
-#### Default LXC Container Specs
-| Resource | Default Value | Configurable in Advanced Mode |
-| :--- | :--- | :--- |
-| **OS Template** | Debian 12 / 13 Standard | Auto-downloaded via `pveam` |
-| **Container Type** | Unprivileged LXC | Yes |
-| **CPU** | 2 vCPU Cores | Yes (`CT_CORES`) |
-| **Memory** | 2048 MB RAM (512 MB Swap) | Yes (`CT_RAM`) |
-| **Disk** | 8 GB | Yes (`CT_DISK` / `CT_STORAGE`) |
-| **Network** | `vmbr0` (DHCP) | Yes (Static CIDR, Gateway, Bridge) |
-
-#### Non-Interactive Proxmox Deployment
-```bash
-CT_ID=150 CT_HOSTNAME=nucmap CT_STORAGE=local-lvm bash -c "$(wget -qLO - https://raw.githubusercontent.com/johestephan/NucMap/main/proxmox/nucmap.sh)" -s -- --yes
-```
-
----
+## 🐳 Alternative Deployment Options
 
 ### Option 2: Docker & Docker Compose
 
-#### Using Docker Compose (Recommended)
+#### Using Docker Compose
 Clone the repository and start the container with `docker compose`:
 
 ```bash
@@ -79,10 +97,10 @@ cd NucMap
 docker compose up -d --build
 ```
 
-Open **`http://<HOST_IP>:3000`** in your browser.
+Open **`http://<HOST_IP>:3000`** in your browser. To update a Docker deployment later, run `git pull && docker compose up -d --build`.
 
 > **Note on Host Networking (`network_mode: host`)**:
-> The provided `docker-compose.yml` uses `network_mode: host` with `NET_RAW` and `NET_ADMIN` capabilities so Nmap can perform Layer-2 ARP subnet discovery (`nmap -sn`) and fast raw SYN scans. If you prefer standard bridge port mapping, comment out `network_mode: host` and uncomment `ports: ["3000:3000"]` in `docker-compose.yml`.
+> The provided `docker-compose.yml` uses `network_mode: host` with `NET_RAW` and `NET_ADMIN` capabilities so Nmap can perform Layer-2 ARP subnet discovery and fast raw SYN scans. If you prefer standard bridge port mapping, comment out `network_mode: host` and uncomment `ports: ["3000:3000"]` in `docker-compose.yml`.
 
 #### Using `docker build` & `docker run`
 ```bash
@@ -103,7 +121,7 @@ docker run -d \
 
 ### Option 3: Standalone Debian / Ubuntu LXC or VM (`installer.sh`)
 
-If you already have a fresh **Debian 12 / 13** or **Ubuntu 22.04 / 24.04** LXC container or VM, run the standalone installer as `root`:
+If you already have a **Debian 12 / 13** or **Ubuntu 22.04 / 24.04** LXC container or VM, run the standalone installer as `root`:
 
 ```bash
 bash -c "$(curl -fsSL https://raw.githubusercontent.com/johestephan/NucMap/main/installer.sh)"
@@ -118,7 +136,7 @@ cd NucMap
 # Run on the current machine:
 sudo ./installer.sh
 
-# Or push & install onto a remote Debian/Ubuntu host via SSH:
+# Or push & install/update onto a remote Debian/Ubuntu host via SSH:
 ./installer.sh --remote root@192.168.1.100
 ```
 
@@ -136,7 +154,7 @@ NucMap/
 ├── Dockerfile                  # Multi-arch (amd64/arm64) container image
 ├── docker-compose.yml          # Docker Compose configuration
 ├── docker-entrypoint.sh        # Container entrypoint & template initializer
-├── installer.sh                # Standalone Debian/Ubuntu installer & remote SSH deployer
+├── installer.sh                # Standalone Debian/Ubuntu installer & updater
 ├── proxmox/
 │   └── nucmap.sh               # Proxmox VE Community-Style LXC creation script
 ├── config/
@@ -144,8 +162,8 @@ NucMap/
 ├── src/
 │   ├── server.js               # Express HTTP server & REST API routes
 │   ├── db.js                   # SQLite3 (WAL mode) schema & queries
-│   ├── scanner.js              # Parallel job pool, scheduler & Nmap/Nuclei runner
-│   ├── parser.js               # Nmap XML, Nuclei JSONL, Vulscan & TLS Cert parsers
+│   ├── scanner.js              # Parallel job pool, stage re-runner & Nmap/Nuclei runner
+│   ├── parser.js               # Nmap XML, Nuclei JSONL, ARP/OUI, rDNS & TLS parsers
 │   ├── differ.js               # Attack surface drift & state comparison engine
 │   └── syslog.js               # RFC5424 JSON Syslog, Webhook & Postfix SMTP alerts
 ├── public/
@@ -162,11 +180,13 @@ NucMap/
 | Method | Endpoint | Description |
 | :--- | :--- | :--- |
 | `GET` | `/api/system/status` | System health, version (`0.1.1`), profiles, queue & signature status |
-| `POST` | `/api/discover` | Run fast `nmap -sn` ARP/Ping subnet sweep (`{"cidr": "192.168.1.0/24"}`) |
+| `GET` | `/api/discover/subnets` | Auto-detect local network interfaces and `/24` subnet CIDRs |
+| `POST` | `/api/discover` | Run Nmap subnet discovery (`{"cidr": "192.168.1.0/24", "mode": "fast" \| "port_sweep"}`) |
 | `GET` | `/api/assets` | List all monitored assets, open port badges, and active vuln counts |
 | `POST` | `/api/assets` | Create or update a monitored asset |
 | `POST` | `/api/assets/bulk` | Bulk-import discovered hosts and optionally trigger parallel scans |
-| `POST` | `/api/scan` | Trigger scan on 1 or multiple targets (`{"target": "192.168.1.10", "profile": "standard"}`) |
+| `POST` | `/api/scan` | Trigger scan (`{"target": "192.168.1.10", "profile": "standard", "stage_mode": "full" \| "nmap_only" \| "nuclei_only"}`) |
+| `POST` | `/api/scan/:id/rerun-stage` | Re-run a specific stage or port (`{"stage": "nmap" \| "nuclei" \| "full", "port": 443}`) |
 | `POST` | `/api/scan/:id/cancel` | Cancel an active or queued scan job |
 | `POST` | `/api/scan/bulk-diff` | Queue rescan & drift comparison across all monitored assets |
 | `GET` | `/api/scan/:id` | Poll live scan status, discovered ports, TLS certs, vulns, and diff |
@@ -187,7 +207,7 @@ NucMap/
 1. **Built-in Authentication & API Key Support**: Set `NUCMAP_PASSWORD=<password>` (and optional `NUCMAP_USER=admin`) or `NUCMAP_API_KEY=<token>` in your environment / systemd unit / `docker-compose.yml` to enforce timing-safe HTTP Basic Auth and Bearer/X-API-Key authentication across the Web UI and all REST API endpoints.
 2. **Strict Target & Flag Allowlists**: All scan targets (RFC-1123 FQDNs, IPv4, CIDR ranges) and custom Nmap profile flags are validated against strict allowlists and spawned via Node's `child_process.spawn(..., { shell: false })` to prevent shell or argument injection.
 3. **Built-in Rate Limiting & Security Headers**: Express enforces per-IP API rate limiting (`NUCMAP_RATE_LIMIT`, default `240` req/min) and strict security headers (`X-Frame-Options: DENY`, `X-Content-Type-Options: nosniff`, `Referrer-Policy: no-referrer`).
-4. **Unprivileged Container Fallback**: If `nmap -sS` (SYN scan) fails due to missing raw socket capabilities inside an unprivileged container, NucMap automatically falls back to `-sT` (TCP Connect scan).
+4. **Unprivileged Container Fallback**: If `nmap -sS` (SYN scan) or raw ARP discovery fails due to missing raw socket capabilities inside an unprivileged container, NucMap automatically falls back to TCP Connect (`-sT`) and kernel `/proc/net/arp` + IEEE OUI vendor lookup.
 
 ---
 

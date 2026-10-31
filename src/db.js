@@ -688,6 +688,30 @@ function updateScanStatus(scanId, status, extra = {}) {
   db.prepare(`UPDATE scans SET ${fields.join(', ')} WHERE id = ?`).run(...params);
 }
 
+function deleteScanPorts(scanId) {
+  db.prepare('DELETE FROM scan_ports WHERE scan_id = ?').run(scanId);
+}
+
+function deleteScanVulns(scanId, { onlyNuclei = false, port = null } = {}) {
+  if (onlyNuclei && port !== null && port !== undefined) {
+    db.prepare(`
+      DELETE FROM scan_vulns
+      WHERE scan_id = ? AND port = ?
+        AND template_id NOT LIKE 'tls-certificate-%'
+        AND template_id NOT LIKE 'nse-vulscan-%'
+    `).run(scanId, Number(port));
+  } else if (onlyNuclei) {
+    db.prepare(`
+      DELETE FROM scan_vulns
+      WHERE scan_id = ?
+        AND template_id NOT LIKE 'tls-certificate-%'
+        AND template_id NOT LIKE 'nse-vulscan-%'
+    `).run(scanId);
+  } else {
+    db.prepare('DELETE FROM scan_vulns WHERE scan_id = ?').run(scanId);
+  }
+}
+
 function insertScanPorts(scanId, ports) {
   const stmt = db.prepare(`
     INSERT INTO scan_ports (scan_id, port, protocol, state, service_name, service_product, service_version, extra_info, cpe)
@@ -982,6 +1006,8 @@ module.exports = {
   listAssets,
   createScan,
   updateScanStatus,
+  deleteScanPorts,
+  deleteScanVulns,
   insertScanPorts,
   insertScanVulns,
   insertScanVulnSingle,

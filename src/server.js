@@ -120,13 +120,22 @@ app.post('/api/system/concurrency', (req, res) => {
 
 // ==================== SUBNET HOST DISCOVERY API ====================
 
+app.get('/api/discover/subnets', (req, res) => {
+  try {
+    res.json({ subnets: scanner.detectLocalSubnets() });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 app.post('/api/discover', async (req, res) => {
   try {
-    const { cidr } = req.body || {};
+    const { cidr, mode = 'fast' } = req.body || {};
     if (!cidr) return res.status(400).json({ error: 'Subnet CIDR or IP range is required (e.g. 192.168.1.0/24).' });
-    const hosts = await scanner.discoverSubnetHosts(cidr);
-    syslog.logEvent('SUBNET_DISCOVERY', { cidr, discovered_count: hosts.length }, 'info');
-    res.json({ cidr, discovered_count: hosts.length, hosts });
+    const cleanMode = mode === 'port_sweep' ? 'port_sweep' : 'fast';
+    const hosts = await scanner.discoverSubnetHosts(cidr, { mode: cleanMode });
+    syslog.logEvent('SUBNET_DISCOVERY', { cidr, mode: cleanMode, discovered_count: hosts.length }, 'info');
+    res.json({ cidr, mode: cleanMode, discovered_count: hosts.length, hosts });
   } catch (err) {
     res.status(400).json({ error: err.message });
   }
@@ -567,7 +576,7 @@ app.delete('/api/assets/:id', (req, res) => {
 
 app.post('/api/scan', (req, res) => {
   try {
-    const { target, targets, profile = 'standard', save_asset = true, tags = [], concurrency } = req.body || {};
+    const { target, targets, profile = 'standard', stage_mode = 'full', save_asset = true, tags = [], concurrency } = req.body || {};
     const parsedTags = Array.isArray(tags)
       ? tags
       : typeof tags === 'string' && tags.trim()
@@ -578,12 +587,25 @@ app.post('/api/scan', (req, res) => {
       target,
       targets,
       profile,
+      stage_mode,
       save_asset: Boolean(save_asset),
       tags: parsedTags,
       concurrency
     });
 
     res.status(202).json(scanJob);
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+app.post('/api/scan/:id/rerun-stage', (req, res) => {
+  try {
+    const id = parseInt(req.params.id, 10);
+    if (Number.isNaN(id)) return res.status(400).json({ error: 'Invalid scan ID' });
+    const { stage = 'nuclei', port = null } = req.body || {};
+    const result = scanner.rerunScanStage(id, { stage, port });
+    res.status(202).json(result);
   } catch (err) {
     res.status(400).json({ error: err.message });
   }

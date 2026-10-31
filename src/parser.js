@@ -1,5 +1,58 @@
+const fs = require('fs');
+const dns = require('dns');
 const tls = require('tls');
 const xml2js = require('xml2js');
+
+let nmapMacPrefixesMap = null;
+
+function loadNmapMacPrefixes() {
+  if (nmapMacPrefixesMap) return nmapMacPrefixesMap;
+  nmapMacPrefixesMap = new Map();
+  const candidates = ['/usr/share/nmap/nmap-mac-prefixes', '/usr/local/share/nmap/nmap-mac-prefixes'];
+  for (const p of candidates) {
+    try {
+      if (!fs.existsSync(p)) continue;
+      const lines = fs.readFileSync(p, 'utf8').split('\n');
+      for (const line of lines) {
+        if (!line || line.startsWith('#')) continue;
+        const m = line.match(/^([0-9A-Fa-f]{6})\s+(.+)$/);
+        if (m) {
+          nmapMacPrefixesMap.set(m[1].toUpperCase(), m[2].trim());
+        }
+      }
+      break;
+    } catch (_) {}
+  }
+  return nmapMacPrefixesMap;
+}
+
+function lookupVendorByMac(mac) {
+  if (!mac) return null;
+  const prefix = mac.replace(/[^0-9A-Fa-f]/g, '').slice(0, 6).toUpperCase();
+  if (prefix.length < 6) return null;
+  const map = loadNmapMacPrefixes();
+  return map.get(prefix) || null;
+}
+
+function readKernelArpTable() {
+  const arpMap = new Map();
+  try {
+    if (!fs.existsSync('/proc/net/arp')) return arpMap;
+    const lines = fs.readFileSync('/proc/net/arp', 'utf8').split('\n').slice(1);
+    for (const line of lines) {
+      const parts = line.trim().split(/\s+/);
+      if (parts.length >= 4) {
+        const ip = parts[0];
+        const flags = parts[2];
+        const mac = parts[3].toUpperCase();
+        if (flags !== '0x0' && mac && mac !== '00:00:00:00:00:00') {
+          arpMap.set(ip, mac);
+        }
+      }
+    }
+  } catch (_) {}
+  return arpMap;
+}
 
 const WEB_PORTS = new Set([80, 443, 3000, 5000, 5001, 8000, 8006, 8008, 8080, 8081, 8443, 8444, 8843, 8880, 8888, 8900, 9000, 9090, 9350, 9351, 9443]);
 const HTTPS_PORTS = new Set([443, 5001, 8006, 8443, 8444, 8843, 8900, 9351, 9443]);
@@ -183,6 +236,17 @@ async function parseNmapXml(xmlString, defaultTarget = '') {
     }
   }
 
+  // Fallback to kernel ARP cache (/proc/net/arp) for single-host scans in unprivileged LXC
+  if (!primaryMac && defaultTarget) {
+    const arpTable = readKernelArpTable();
+    if (arpTable.has(defaultTarget)) {
+      primaryMac = arpTable.get(defaultTarget);
+    }
+  }
+  if (primaryMac && !primaryVendor) {
+    primaryVendor = lookupVendorByMac(primaryMac);
+  }
+
   return {
     hostname: primaryHostname,
     mac_address: primaryMac,
@@ -193,16 +257,28 @@ async function parseNmapXml(xmlString, defaultTarget = '') {
   };
 }
 
-// Parse Nmap Host Discovery (-sn) XML for Subnet Ping/ARP Sweep
+// Parse Nmap Host Discovery XML for Subnet Sweep (enriches with kernel ARP table, MAC OUI vendor & reverse DNS)
 async function parseNmapHostDiscoveryXml(xmlString) {
   if (!xmlString || !xmlString.trim()) return [];
   const parser = new xml2js.Parser({ explicitArray: false, mergeAttrs: false });
   const parsed = await parser.parseStringPromise(xmlString);
   const hosts = asArray(parsed?.nmaprun?.host);
+  const arpTable = readKernelArpTable();
   const discovered = [];
 
   for (const host of hosts) {
-    if (host?.status?.$?.state !== 'up') continue;
+    const statusState = host?.status?.$?.state;
+    const portEntries = asArray(host?.ports?.port);
+    const openPorts = [];
+    for (const p of portEntries) {
+      if (p?.state?.$?.state === 'open') {
+        const pNum = parseInt(p?.$?.portid, 10);
+        if (!Number.isNaN(pNum)) openPorts.push(pNum);
+      }
+    }
+
+    if (statusState !== 'up' && openPorts.length === 0) continue;
+
     const addresses = asArray(host.address);
     let ip = null;
     let mac = null;
@@ -213,11 +289,19 @@ async function parseNmapHostDiscoveryXml(xmlString) {
       if (!a) continue;
       if (a.addrtype === 'ipv4' || a.addrtype === 'ipv6') ip = a.addr;
       else if (a.addrtype === 'mac') {
-        mac = a.addr || null;
+        mac = a.addr ? a.addr.toUpperCase() : null;
         vendor = a.vendor || null;
       }
     }
     if (!ip) continue;
+
+    // Fallback to kernel ARP cache (/proc/net/arp) if running in an unprivileged container
+    if (!mac && arpTable.has(ip)) {
+      mac = arpTable.get(ip);
+    }
+    if (mac && !vendor) {
+      vendor = lookupVendorByMac(mac);
+    }
 
     let hostname = null;
     const hostnames = asArray(host?.hostnames?.hostname);
@@ -232,10 +316,28 @@ async function parseNmapHostDiscoveryXml(xmlString) {
       target: ip,
       hostname,
       mac_address: mac,
-      vendor
+      vendor,
+      open_ports: openPorts
     });
   }
 
+  // Enrich missing hostnames with fast reverse DNS lookups (800ms timeout)
+  await Promise.all(
+    discovered.map(async (item) => {
+      if (item.hostname) return;
+      try {
+        const names = await Promise.race([
+          dns.promises.reverse(item.target),
+          new Promise((_, rej) => setTimeout(() => rej(new Error('timeout')), 800))
+        ]);
+        if (Array.isArray(names) && names.length > 0) {
+          item.hostname = names[0];
+        }
+      } catch (_) {}
+    })
+  );
+
+  // Also enrich single-host Nmap XML runs with kernel ARP table if MAC was missing
   return discovered;
 }
 

@@ -557,9 +557,38 @@ function renderAssetsTable() {
 }
 
 // Subnet Host Discovery Wizard (Modal 4)
-function openDiscoverModal() {
+async function openDiscoverModal() {
   populateProfileDropdowns();
   document.getElementById('discover-modal').classList.remove('hidden');
+
+  const chipsEl = document.getElementById('discover-detected-subnets');
+  if (chipsEl) {
+    try {
+      const res = await fetch('/api/discover/subnets');
+      if (res.ok) {
+        const data = await res.json();
+        const subnets = data.subnets || [];
+        if (subnets.length > 0) {
+          const cidrInput = document.getElementById('discover-cidr-input');
+          if (cidrInput && cidrInput.value === '192.168.1.0/24') {
+            cidrInput.value = subnets[0].cidr;
+          }
+          chipsEl.innerHTML =
+            `<span class="text-slate-500 mr-1">Detected Local Subnets:</span>` +
+            subnets
+              .map(
+                (s) =>
+                  `<button type="button" onclick="document.getElementById('discover-cidr-input').value='${escapeHtml(
+                    s.cidr
+                  )}'" class="px-2 py-0.5 rounded bg-slate-800 hover:bg-slate-700 text-emerald-300 font-mono border border-slate-700">${escapeHtml(
+                    s.cidr
+                  )} (${escapeHtml(s.interface)}: ${escapeHtml(s.address)})</button>`
+              )
+              .join('');
+        }
+      }
+    } catch (_) {}
+  }
 }
 
 function closeDiscoverModal() {
@@ -570,18 +599,23 @@ async function runSubnetDiscovery(e) {
   e.preventDefault();
   const cidr = document.getElementById('discover-cidr-input').value.trim();
   if (!cidr) return;
+  const mode = document.getElementById('discover-mode-select')?.value || 'fast';
 
   const btn = document.getElementById('btn-run-discovery');
   const area = document.getElementById('discover-results-area');
   btn.disabled = true;
   btn.textContent = 'Sweeping Subnet...';
-  area.innerHTML = `<div class="p-8 text-center text-xs text-emerald-300 animate-pulse border border-emerald-500/30 rounded-xl bg-emerald-950/20">Running Nmap ARP/Ping sweep (\`nmap -sn ${escapeHtml(cidr)}\`)...</div>`;
+  const modeDesc =
+    mode === 'port_sweep'
+      ? `Deep Port-Assisted Sweep (-sT -Pn --top-ports 25 ${escapeHtml(cidr)})`
+      : `Multi-Probe Ping/TCP/ARP + Reverse DNS Sweep (${escapeHtml(cidr)})`;
+  area.innerHTML = `<div class="p-8 text-center text-xs text-emerald-300 animate-pulse border border-emerald-500/30 rounded-xl bg-emerald-950/20">Running Nmap ${modeDesc}...</div>`;
 
   try {
     const res = await fetch('/api/discover', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ cidr })
+      body: JSON.stringify({ cidr, mode })
     });
     const data = await res.json();
     if (!res.ok) {
@@ -601,7 +635,7 @@ async function runSubnetDiscovery(e) {
     area.innerHTML = `<div class="p-4 text-xs text-rose-300 bg-rose-950/40 border border-rose-700 rounded-xl">${escapeHtml(err.message)}</div>`;
   } finally {
     btn.disabled = false;
-    btn.textContent = 'Run ARP / Ping Sweep';
+    btn.textContent = 'Run Discovery Sweep';
   }
 }
 
@@ -616,7 +650,7 @@ function toggleDiscoveredIp(ip, checked) {
 function renderDiscoveredHostsList() {
   const area = document.getElementById('discover-results-area');
   if (state.discoveredHosts.length === 0) {
-    area.innerHTML = `<div class="p-6 text-center text-xs text-slate-400 border border-slate-800 rounded-xl">No live hosts responded in that range.</div>`;
+    area.innerHTML = `<div class="p-6 text-center text-xs text-slate-400 border border-slate-800 rounded-xl">No live hosts responded in that range. Try switching to "Deep Port-Assisted Sweep (-Pn Top 25 Ports)" if ICMP is blocked.</div>`;
     return;
   }
 
@@ -632,6 +666,17 @@ function renderDiscoveredHostsList() {
       ${state.discoveredHosts
         .map((h) => {
           const checked = state.selectedDiscoveredIps.has(h.target) ? 'checked' : '';
+          const openPortsBadges =
+            Array.isArray(h.open_ports) && h.open_ports.length > 0
+              ? `<div class="mt-1 flex flex-wrap gap-1">${h.open_ports
+                  .map(
+                    (p) =>
+                      `<span class="px-1.5 py-0.5 rounded text-[10px] font-mono bg-cyan-500/15 text-cyan-300 border border-cyan-500/30">${p.port}/${escapeHtml(
+                        p.service || 'tcp'
+                      )}</span>`
+                  )
+                  .join('')}</div>`
+              : '';
           return `
             <label class="px-4 py-2.5 flex items-center justify-between gap-3 hover:bg-slate-900 cursor-pointer text-xs">
               <div class="flex items-center gap-3">
@@ -640,6 +685,7 @@ function renderDiscoveredHostsList() {
                   <span class="font-mono font-bold text-white">${escapeHtml(h.target)}</span>
                   ${h.hostname ? `<span class="ml-2 text-cyan-300">${escapeHtml(h.hostname)}</span>` : ''}
                   ${h.vendor || h.mac_address ? `<div class="text-[11px] text-slate-400 font-mono">${escapeHtml(h.mac_address || '')} ${escapeHtml(h.vendor ? `(${h.vendor})` : '')}</div>` : ''}
+                  ${openPortsBadges}
                 </div>
               </div>
               <div>
@@ -713,6 +759,7 @@ async function handleQuickScanSubmit(e) {
   e.preventDefault();
   const targetInput = document.getElementById('scan-target-input');
   const profileSelect = document.getElementById('scan-profile-select');
+  const stageModeSelect = document.getElementById('scan-stage-mode');
   const tagsInput = document.getElementById('scan-tags-input');
   const saveAssetCheckbox = document.getElementById('scan-save-asset');
   const concurrency = Number(document.getElementById('global-concurrency-select')?.value || 3);
@@ -721,6 +768,7 @@ async function handleQuickScanSubmit(e) {
   if (!target) return;
 
   const profile = profileSelect.value;
+  const stage_mode = stageModeSelect ? stageModeSelect.value : 'full';
   const save_asset = saveAssetCheckbox.checked;
   const tags = tagsInput.value
     .split(',')
@@ -731,7 +779,7 @@ async function handleQuickScanSubmit(e) {
     const res = await fetch('/api/scan', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ target, profile, save_asset, tags, concurrency })
+      body: JSON.stringify({ target, profile, save_asset, tags, concurrency, stage_mode })
     });
     const data = await res.json();
     if (!res.ok) {
@@ -740,10 +788,16 @@ async function handleQuickScanSubmit(e) {
     }
 
     const jobCount = (data.jobs || []).length || 1;
+    const modeLabel =
+      stage_mode === 'nmap_only'
+        ? ' [Stage 1 Only]'
+        : stage_mode === 'nuclei_only'
+        ? ' [Stage 2 Nuclei Only]'
+        : '';
     showToast(
       jobCount > 1
-        ? `Started ${jobCount} synchronous host scans (${profile})`
-        : `Scan #${data.scan_id} queued for ${data.target} (${data.profile})`,
+        ? `Started ${jobCount} synchronous host scans (${profile}${modeLabel})`
+        : `Scan #${data.scan_id} queued for ${data.target} (${data.profile}${modeLabel})`,
       'success'
     );
     targetInput.value = '';
@@ -1146,6 +1200,9 @@ function renderScanPortCards(scan) {
                 ? `<a href="${escapeHtml(webUrl)}" target="_blank" rel="noopener noreferrer" class="px-2 py-0.5 rounded text-[11px] font-medium bg-cyan-500/15 hover:bg-cyan-500/25 text-cyan-300 border border-cyan-500/30">Open ↗</a>`
                 : ''
             }
+            <button type="button" onclick="rerunCurrentScanStage('nuclei', ${p.port})" title="Re-run Stage 2 (Nuclei) only on port ${p.port}" class="px-2 py-0.5 rounded text-[11px] font-medium bg-amber-500/15 hover:bg-amber-500/25 text-amber-300 border border-amber-500/30">
+              ↻ Re-verify Port
+            </button>
             ${vulnBadgesHtml}
             <button type="button" onclick="togglePortCard('${escapeHtml(pKey)}')" class="p-1 text-slate-400 hover:text-white">
               <svg class="w-4 h-4 transform transition ${isExpanded ? 'rotate-180' : ''}" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
@@ -1313,6 +1370,35 @@ async function promoteCurrentScanAsset() {
 function rescanCurrentTarget() {
   if (!state.currentScan) return;
   scanSavedAsset(state.currentScan.target, state.currentScan.profile);
+}
+
+async function rerunCurrentScanStage(stage, port = null) {
+  if (!state.currentScanId) return;
+  try {
+    const res = await fetch(`/api/scan/${state.currentScanId}/rerun-stage`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ stage, port })
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      showToast(data.error || 'Failed to rerun scan stage', 'error');
+      return;
+    }
+
+    const stageLabel =
+      stage === 'nmap'
+        ? 'Stage 1 (Nmap + TLS)'
+        : port
+        ? `Stage 2 (Nuclei on port ${port})`
+        : 'Stage 2 (Nuclei on all discovered ports)';
+
+    showToast(`Re-running ${stageLabel} on Scan #${state.currentScanId}`, 'success');
+    await refreshRecentScans();
+    await fetchScanDetail(state.currentScanId);
+  } catch (err) {
+    showToast(err.message, 'error');
+  }
 }
 
 // Drift / Diff Timeline (Tab 3)
