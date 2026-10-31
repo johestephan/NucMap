@@ -139,13 +139,16 @@ echo "[5/7] Setting up directories (${DATA_DIR} & ${APP_DIR})..."
 mkdir -p "${DATA_DIR}"
 mkdir -p "${APP_DIR}"
 
-if [[ -f "${SCRIPT_DIR}/package.json" && -d "${SCRIPT_DIR}/src" ]]; then
-  if [[ "${SCRIPT_DIR}" != "${APP_DIR}" ]]; then
-    cp -r "${SCRIPT_DIR}/package.json" "${SCRIPT_DIR}/config" "${SCRIPT_DIR}/src" "${SCRIPT_DIR}/public" "${SCRIPT_DIR}/systemd" "${APP_DIR}/"
-    [[ -f "${SCRIPT_DIR}/README.md" ]] && cp "${SCRIPT_DIR}/README.md" "${APP_DIR}/" || true
-    [[ -f "${SCRIPT_DIR}/LICENSE" ]] && cp "${SCRIPT_DIR}/LICENSE" "${APP_DIR}/" || true
-    cp "${SCRIPT_DIR}/installer.sh" "${APP_DIR}/"
-  fi
+if [[ -f "${SCRIPT_DIR}/package.json" && -d "${SCRIPT_DIR}/src" && "${SCRIPT_DIR}" != "${APP_DIR}" ]]; then
+  echo "    Copying project files from ${SCRIPT_DIR} to ${APP_DIR}..."
+  cp -r "${SCRIPT_DIR}/package.json" "${SCRIPT_DIR}/config" "${SCRIPT_DIR}/src" "${SCRIPT_DIR}/public" "${SCRIPT_DIR}/systemd" "${APP_DIR}/"
+  [[ -f "${SCRIPT_DIR}/README.md" ]] && cp "${SCRIPT_DIR}/README.md" "${APP_DIR}/" || true
+  [[ -f "${SCRIPT_DIR}/LICENSE" ]] && cp "${SCRIPT_DIR}/LICENSE" "${APP_DIR}/" || true
+  cp "${SCRIPT_DIR}/installer.sh" "${APP_DIR}/"
+elif [[ -d "${APP_DIR}/.git" ]]; then
+  echo "    Fetching latest release in ${APP_DIR}..."
+  git -C "${APP_DIR}" fetch --depth 1 origin main || true
+  git -C "${APP_DIR}" reset --hard origin/main || true
 else
   echo "    Cloning ${REPO_URL} into ${APP_DIR}..."
   TMP_CLONE="$(mktemp -d /tmp/nucmap_clone_XXXXXX)"

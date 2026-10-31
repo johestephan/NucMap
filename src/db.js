@@ -225,12 +225,13 @@ function initSchema() {
     const allRows = db.prepare('SELECT id, tags FROM assets').all();
     for (const r of allRows) {
       const t = safeParseJson(r.tags, []);
-      if (t.includes('_transient')) {
+      if (t.includes('_transient') || t.length === 0) {
         const cleaned = t.filter((x) => x !== '_transient');
         const finalTags = cleaned.length > 0 ? cleaned : ['LAN'];
         db.prepare('UPDATE assets SET tags = ? WHERE id = ?').run(JSON.stringify(finalTags), r.id);
       }
     }
+    db.prepare("UPDATE assets SET tags = '[\"LAN\"]' WHERE tags IS NULL OR tags = '' OR tags = '[]' OR tags LIKE '%_transient%'").run();
   } catch (_) {}
 
   seedDefaultProfiles();
