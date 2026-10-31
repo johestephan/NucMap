@@ -1,0 +1,946 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>NucMap v0.1.1 — ASM &amp; Vulnerability Scanner</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          colors: {
+            slate: {
+              850: '#151f32',
+              950: '#0a0f1a'
+            }
+          }
+        }
+      }
+    };
+  </script>
+  <style>
+    ::-webkit-scrollbar { width: 8px; height: 8px; }
+    ::-webkit-scrollbar-track { background: #0f172a; }
+    ::-webkit-scrollbar-thumb { background: #334155; border-radius: 4px; }
+    ::-webkit-scrollbar-thumb:hover { background: #475569; }
+  </style>
+</head>
+<body class="bg-slate-950 text-slate-100 min-h-screen flex flex-col font-sans antialiased selection:bg-cyan-500 selection:text-slate-950">
+
+  <!-- Top Navigation & Action Bar -->
+  <header class="bg-slate-900/90 backdrop-blur border-b border-slate-800 sticky top-0 z-30">
+    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-3">
+      <div class="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
+        
+        <!-- Brand Identity -->
+        <div class="flex items-center justify-between">
+          <div class="flex items-center gap-3">
+            <div class="w-10 h-10 rounded-lg bg-gradient-to-br from-cyan-500 to-blue-600 flex items-center justify-center shadow-lg shadow-cyan-500/20">
+              <svg class="w-6 h-6 text-slate-950" fill="none" stroke="currentColor" stroke-width="2.2" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M12 3l8 4.5v5.25c0 5.25-3.5 9.75-8 11.25-4.5-1.5-8-6-8-11.25V7.5L12 3z" />
+                <path stroke-linecap="round" stroke-linejoin="round" d="M9 12l2 2 4-4" />
+              </svg>
+            </div>
+            <div>
+              <div class="flex items-center gap-2">
+                <h1 class="text-lg font-bold tracking-tight text-white">NucMap</h1>
+                <span class="text-[11px] font-mono font-semibold px-1.5 py-0.5 rounded bg-slate-800 text-slate-300 border border-slate-700">v0.1.1</span>
+                <span class="text-[11px] font-semibold uppercase tracking-wider px-2 py-0.5 rounded bg-cyan-500/15 text-cyan-400 border border-cyan-500/30">ASM &amp; Vuln Scanner</span>
+              </div>
+              <p class="text-xs text-slate-400">Nmap + Nuclei + Vulscan • Subnet Discovery • TLS Inspector • Drift Alerts &amp; JSON Syslog</p>
+            </div>
+          </div>
+
+          <div id="queue-badge-mobile" class="hidden lg:hidden items-center gap-1.5 px-2.5 py-1 rounded-full bg-amber-500/15 border border-amber-500/30 text-amber-300 text-xs font-medium">
+            <span class="w-2 h-2 rounded-full bg-amber-400 animate-ping"></span>
+            <span id="queue-count-mobile">Scanning...</span>
+          </div>
+        </div>
+
+        <!-- Global Actions & Parallel Concurrency -->
+        <div class="flex flex-wrap items-center gap-2">
+          <div id="queue-badge-desktop" class="hidden items-center gap-2 px-3 py-1.5 rounded-lg bg-amber-500/15 border border-amber-500/30 text-amber-300 text-xs font-medium">
+            <span class="w-2 h-2 rounded-full bg-amber-400 animate-ping"></span>
+            <span id="queue-count-desktop">1 scan active</span>
+          </div>
+
+          <!-- Parallel / Synchronous Host Concurrency Selector (1-5) -->
+          <div class="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-slate-950 border border-slate-800 text-xs">
+            <span class="text-slate-400 font-medium">Parallel:</span>
+            <select id="global-concurrency-select" onchange="updateGlobalConcurrency(this.value)" class="bg-transparent text-cyan-400 font-bold focus:outline-none cursor-pointer">
+              <option value="1" class="bg-slate-900">1x Host</option>
+              <option value="2" class="bg-slate-900">2x Hosts</option>
+              <option value="3" selected class="bg-slate-900">3x Hosts</option>
+              <option value="4" class="bg-slate-900">4x Hosts</option>
+              <option value="5" class="bg-slate-900">5x Hosts</option>
+            </select>
+          </div>
+
+          <button onclick="openDiscoverModal()" class="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-semibold bg-emerald-600/20 hover:bg-emerald-600/30 text-emerald-300 border border-emerald-500/40 transition shadow-sm">
+            <svg class="w-4 h-4 text-emerald-400" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M8.111 16.404a5.5 5.5 0 017.778 0M12 20h.01m-7.08-7.071c3.904-3.905 10.236-3.905 14.141 0M1.394 9.393c5.857-5.857 15.355-5.857 21.213 0" />
+            </svg>
+            <span>Discover Subnet</span>
+          </button>
+
+          <button id="btn-bulk-diff" onclick="triggerBulkRescan()" class="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-semibold bg-indigo-600/20 hover:bg-indigo-600/30 text-indigo-300 border border-indigo-500/40 transition shadow-sm">
+            <svg class="w-4 h-4 text-indigo-400" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+            </svg>
+            <span>Rescan &amp; Diff All</span>
+          </button>
+
+          <button id="btn-update-signatures" onclick="openSignatureModal(false)" class="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-semibold bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 transition shadow-sm">
+            <svg class="w-4 h-4 text-cyan-400" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
+            </svg>
+            <span>Signatures</span>
+            <span id="sig-last-updated-badge" class="px-1.5 py-0.5 text-[10px] rounded bg-slate-900 text-slate-400 border border-slate-700">Never</span>
+          </button>
+        </div>
+      </div>
+
+      <!-- Quick Scan Input Bar (Supports 1 or up to 5 synchronous targets) -->
+      <form id="quick-scan-form" onsubmit="handleQuickScanSubmit(event)" class="mt-3 pt-3 border-t border-slate-800/80 grid grid-cols-1 md:grid-cols-12 gap-2.5 items-center">
+        <div class="md:col-span-4 relative">
+          <div class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-slate-500">
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+            </svg>
+          </div>
+          <input
+            type="text"
+            id="scan-target-input"
+            required
+            placeholder="Target(s): e.g. 192.168.1.10, 192.168.1.20, host.example.internal (up to 5 synchronous)"
+            class="w-full pl-9 pr-3 py-2 text-sm rounded-lg bg-slate-950 border border-slate-700/80 text-slate-100 placeholder-slate-500 focus:outline-none focus:border-cyan-500 focus:ring-1 focus:ring-cyan-500"
+          />
+        </div>
+
+        <div class="md:col-span-3">
+          <select
+            id="scan-profile-select"
+            class="w-full px-3 py-2 text-sm rounded-lg bg-slate-950 border border-slate-700/80 text-slate-200 focus:outline-none focus:border-cyan-500"
+          >
+            <option value="web">Web (80, 443)</option>
+            <option value="web-backend">Web Backend (80, 443, 3000, 5000, 8080...)</option>
+            <option value="server">Server (SSH, LDAP, SMB, DB, Mail, DNS...)</option>
+            <option value="quick">Quick / Triage (Top 100 Ports)</option>
+            <option value="standard" selected>Standard (Ports 1-10000)</option>
+            <option value="deep">Deep / Full (All 65535 Ports)</option>
+            <option value="stealth">Stealth / Low-Noise</option>
+          </select>
+        </div>
+
+        <div class="md:col-span-2">
+          <input
+            type="text"
+            id="scan-tags-input"
+            placeholder="Tags: LAN, IoT, DMZ"
+            class="w-full px-3 py-2 text-sm rounded-lg bg-slate-950 border border-slate-700/80 text-slate-100 placeholder-slate-500 focus:outline-none focus:border-cyan-500"
+          />
+        </div>
+
+        <div class="md:col-span-1 flex items-center justify-start md:justify-center">
+          <label class="inline-flex items-center gap-2 cursor-pointer select-none text-xs text-slate-300">
+            <input type="checkbox" id="scan-save-asset" checked class="rounded bg-slate-950 border-slate-700 text-cyan-500 focus:ring-cyan-500" />
+            <span>Save</span>
+          </label>
+        </div>
+
+        <div class="md:col-span-2">
+          <button
+            type="submit"
+            id="btn-scan-now"
+            class="w-full inline-flex items-center justify-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold bg-cyan-500 hover:bg-cyan-400 text-slate-950 shadow-lg shadow-cyan-500/20 transition"
+          >
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M13 10V3L4 14h7v7l9-11h-7z" />
+            </svg>
+            <span>Scan Now</span>
+          </button>
+        </div>
+      </form>
+    </div>
+  </header>
+
+  <!-- Toast Notification Banner -->
+  <div id="toast-container" class="fixed bottom-5 right-5 z-50 flex flex-col gap-2 max-w-sm w-full pointer-events-none"></div>
+
+  <!-- Main Content Container -->
+  <main class="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-6">
+
+    <!-- Overview Metric Cards -->
+    <div class="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+      <div class="bg-slate-900/80 border border-slate-800 rounded-xl p-4 flex items-center justify-between">
+        <div>
+          <p class="text-xs font-medium text-slate-400 uppercase tracking-wider">Monitored Assets</p>
+          <p id="stat-total-assets" class="text-2xl font-bold text-white mt-1">0</p>
+        </div>
+        <div class="w-10 h-10 rounded-lg bg-cyan-500/10 border border-cyan-500/20 flex items-center justify-center text-cyan-400">
+          <svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M5 12h14M5 12a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v4a2 2 0 01-2 2M5 12a2 2 0 00-2 2v4a2 2 0 002 2h14a2 2 0 002-2v-4a2 2 0 00-2-2" />
+          </svg>
+        </div>
+      </div>
+
+      <div class="bg-slate-900/80 border border-slate-800 rounded-xl p-4 flex items-center justify-between">
+        <div>
+          <p class="text-xs font-medium text-slate-400 uppercase tracking-wider">Open Services / Ports</p>
+          <p id="stat-total-ports" class="text-2xl font-bold text-emerald-400 mt-1">0</p>
+        </div>
+        <div class="w-10 h-10 rounded-lg bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center text-emerald-400">
+          <svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M8 9l3 3-3 3m5 0h3M5 20h14a2 2 0 002-2V6a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
+          </svg>
+        </div>
+      </div>
+
+      <div class="bg-slate-900/80 border border-slate-800 rounded-xl p-4 flex items-center justify-between">
+        <div>
+          <p class="text-xs font-medium text-slate-400 uppercase tracking-wider">Unreviewed Crit &amp; High</p>
+          <p id="stat-crit-high-vulns" class="text-2xl font-bold text-rose-400 mt-1">0</p>
+        </div>
+        <div class="w-10 h-10 rounded-lg bg-rose-500/10 border border-rose-500/20 flex items-center justify-center text-rose-400">
+          <svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+          </svg>
+        </div>
+      </div>
+
+      <div class="bg-slate-900/80 border border-slate-800 rounded-xl p-4 flex items-center justify-between">
+        <div>
+          <p class="text-xs font-medium text-slate-400 uppercase tracking-wider">Recorded Drift Events</p>
+          <p id="stat-total-diffs" class="text-2xl font-bold text-indigo-400 mt-1">0</p>
+        </div>
+        <div class="w-10 h-10 rounded-lg bg-indigo-500/10 border border-indigo-500/20 flex items-center justify-center text-indigo-400">
+          <svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
+          </svg>
+        </div>
+      </div>
+    </div>
+
+    <!-- Navigation Tabs -->
+    <div class="border-b border-slate-800 mb-6 flex flex-wrap items-center justify-between gap-3">
+      <nav class="flex flex-wrap space-x-1 sm:space-x-2" aria-label="Tabs">
+        <button
+          id="tab-btn-assets"
+          onclick="switchTab('assets')"
+          class="tab-btn px-3.5 py-2.5 text-xs sm:text-sm font-semibold rounded-t-lg border-b-2 border-cyan-400 text-cyan-400 bg-slate-900/60 flex items-center gap-2 transition"
+        >
+          <span>1. Monitored Assets</span>
+          <span id="tab-badge-assets" class="px-2 py-0.5 text-xs rounded-full bg-slate-800 text-slate-300">0</span>
+        </button>
+
+        <button
+          id="tab-btn-active-scan"
+          onclick="switchTab('active-scan')"
+          class="tab-btn px-3.5 py-2.5 text-xs sm:text-sm font-semibold rounded-t-lg border-b-2 border-transparent text-slate-400 hover:text-slate-200 flex items-center gap-2 transition"
+        >
+          <span>2. Active Scans &amp; Results</span>
+          <span id="tab-badge-active" class="hidden w-2 h-2 rounded-full bg-cyan-400 animate-ping"></span>
+        </button>
+
+        <button
+          id="tab-btn-diffs"
+          onclick="switchTab('diffs')"
+          class="tab-btn px-3.5 py-2.5 text-xs sm:text-sm font-semibold rounded-t-lg border-b-2 border-transparent text-slate-400 hover:text-slate-200 flex items-center gap-2 transition"
+        >
+          <span>3. Drift / Diff Report</span>
+          <span id="tab-badge-diffs" class="px-2 py-0.5 text-xs rounded-full bg-slate-800 text-slate-300">0</span>
+        </button>
+
+        <button
+          id="tab-btn-profiles"
+          onclick="switchTab('profiles')"
+          class="tab-btn px-3.5 py-2.5 text-xs sm:text-sm font-semibold rounded-t-lg border-b-2 border-transparent text-slate-400 hover:text-slate-200 flex items-center gap-2 transition"
+        >
+          <span>4. Scan Profiles &amp; Ports</span>
+          <span id="tab-badge-profiles" class="px-2 py-0.5 text-xs rounded-full bg-slate-800 text-slate-300">7</span>
+        </button>
+
+        <button
+          id="tab-btn-schedules"
+          onclick="switchTab('schedules')"
+          class="tab-btn px-3.5 py-2.5 text-xs sm:text-sm font-semibold rounded-t-lg border-b-2 border-transparent text-slate-400 hover:text-slate-200 flex items-center gap-2 transition"
+        >
+          <span>5. Schedules, Alerts &amp; Syslog</span>
+        </button>
+      </nav>
+
+      <div class="flex flex-wrap items-center gap-2 pb-2">
+        <a href="/api/export/assets.csv" class="px-2.5 py-1.5 rounded-lg text-xs font-medium bg-slate-900 hover:bg-slate-800 text-slate-300 border border-slate-800 transition">
+          ↓ Export CSV
+        </a>
+        <a href="/api/export/report.json" class="px-2.5 py-1.5 rounded-lg text-xs font-medium bg-slate-900 hover:bg-slate-800 text-slate-300 border border-slate-800 transition">
+          ↓ Export JSON
+        </a>
+        <a href="/api/export/nucmap.db" class="px-2.5 py-1.5 rounded-lg text-xs font-medium bg-slate-900 hover:bg-slate-800 text-slate-300 border border-slate-800 transition" title="Download SQLite Database Backup">
+          ↓ DB Backup
+        </a>
+        <button onclick="openAddAssetModal()" class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 transition">
+          <svg class="w-3.5 h-3.5 text-cyan-400" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4" />
+          </svg>
+          <span>Add Asset</span>
+        </button>
+      </div>
+    </div>
+
+    <!-- TAB 1: MONITORED ASSETS INVENTORY -->
+    <section id="tab-panel-assets" class="space-y-4">
+      <div class="bg-slate-900/90 border border-slate-800 rounded-xl overflow-hidden shadow-xl">
+        <div class="px-5 py-4 border-b border-slate-800 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+          <div>
+            <h2 class="text-base font-semibold text-white">Monitored Assets Inventory</h2>
+            <p class="text-xs text-slate-400">Saved hosts and subnets tracked for open service changes, TLS expiry, and CVEs (click any HTTP/HTTPS port badge to open service)</p>
+          </div>
+          <div class="flex items-center gap-2">
+            <button onclick="scanSelectedAssets()" id="btn-scan-selected" class="hidden px-3 py-1.5 rounded-lg text-xs font-semibold bg-cyan-500 text-slate-950 hover:bg-cyan-400 transition">
+              Scan Selected (Parallel)
+            </button>
+            <input
+              type="text"
+              id="asset-filter-input"
+              oninput="renderAssetsTable()"
+              placeholder="Filter by IP, hostname, tag, port..."
+              class="px-3 py-1.5 text-xs rounded-lg bg-slate-950 border border-slate-700 text-slate-200 placeholder-slate-500 focus:outline-none focus:border-cyan-500"
+            />
+          </div>
+        </div>
+
+        <div class="overflow-x-auto">
+          <table class="min-w-full divide-y divide-slate-800 text-left text-sm">
+            <thead class="bg-slate-950/60 text-xs uppercase text-slate-400 font-semibold">
+              <tr>
+                <th class="px-4 py-3.5 w-8">
+                  <input type="checkbox" id="select-all-assets" onchange="toggleSelectAllAssets(this.checked)" class="rounded bg-slate-950 border-slate-700 text-cyan-500" />
+                </th>
+                <th class="px-4 py-3.5">Target / Hostname</th>
+                <th class="px-4 py-3.5">MAC / Vendor</th>
+                <th class="px-4 py-3.5">Open Ports</th>
+                <th class="px-4 py-3.5">Vulnerability Summary</th>
+                <th class="px-4 py-3.5">Last Scanned</th>
+                <th class="px-5 py-3.5 text-right">Actions</th>
+              </tr>
+            </thead>
+            <tbody id="assets-table-body" class="divide-y divide-slate-800/70">
+              <tr>
+                <td colspan="7" class="px-5 py-10 text-center text-slate-500">Loading monitored assets...</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <!-- TAB 2: ACTIVE SCAN & LIVE RESULTS -->
+    <section id="tab-panel-active-scan" class="hidden space-y-6">
+      <div class="grid grid-cols-1 lg:grid-cols-12 gap-6">
+        
+        <!-- Left Sidebar: Recent & Active Scans List -->
+        <div class="lg:col-span-4 space-y-4">
+          <div class="bg-slate-900/90 border border-slate-800 rounded-xl overflow-hidden">
+            <div class="px-4 py-3 border-b border-slate-800 flex items-center justify-between">
+              <h3 class="text-xs font-semibold uppercase tracking-wider text-slate-300">Scan Jobs &amp; Parallel Queue</h3>
+              <button onclick="refreshRecentScans()" class="text-xs text-cyan-400 hover:text-cyan-300">Refresh</button>
+            </div>
+            <div id="recent-scans-list" class="divide-y divide-slate-800/70 max-h-[620px] overflow-y-auto">
+              <div class="p-6 text-center text-xs text-slate-500">No scans triggered yet.</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Right Main Area: Selected Scan Pipeline & Live Port/Vuln Cards -->
+        <div class="lg:col-span-8 space-y-5">
+          <div id="active-scan-empty" class="bg-slate-900/80 border border-slate-800 rounded-xl p-12 text-center">
+            <p class="text-slate-400 text-sm">Select a scan job on the left or start a new scan from the Top Action Bar.</p>
+          </div>
+
+          <div id="active-scan-detail" class="hidden space-y-5">
+            <!-- Two-Stage Pipeline Progress Card -->
+            <div class="bg-slate-900/90 border border-slate-800 rounded-xl p-5 shadow-lg">
+              <div class="flex flex-wrap items-start justify-between gap-4 mb-5">
+                <div>
+                  <div class="flex items-center gap-2.5">
+                    <span id="scan-detail-id" class="text-xs font-mono px-2 py-0.5 rounded bg-slate-800 text-cyan-400 border border-slate-700">#1</span>
+                    <h2 id="scan-detail-target" class="text-lg font-bold text-white">192.168.1.10</h2>
+                    <span id="scan-detail-profile" class="text-xs font-medium px-2.5 py-0.5 rounded-full bg-indigo-500/15 text-indigo-300 border border-indigo-500/30">standard</span>
+                    <span id="scan-detail-status-badge" class="text-xs font-semibold px-2.5 py-0.5 rounded-full">queued</span>
+                  </div>
+                  <p id="scan-detail-meta" class="text-xs text-slate-400 mt-1"></p>
+                </div>
+
+                <div class="flex items-center gap-2">
+                  <button id="btn-cancel-scan" onclick="cancelCurrentScan()" class="hidden px-3 py-1.5 rounded-lg text-xs font-semibold bg-rose-500/20 hover:bg-rose-500/30 text-rose-300 border border-rose-500/40">
+                    Stop / Cancel Scan
+                  </button>
+                  <button id="btn-promote-transient" onclick="promoteCurrentScanAsset()" class="hidden px-3 py-1.5 rounded-lg text-xs font-semibold bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 border border-emerald-500/30">
+                    + Save as Monitored Asset
+                  </button>
+                  <button onclick="rescanCurrentTarget()" class="px-3 py-1.5 rounded-lg text-xs font-semibold bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700">
+                    Rescan Target
+                  </button>
+                </div>
+              </div>
+
+              <!-- Pipeline Progress Stepper -->
+              <div class="grid grid-cols-1 md:grid-cols-3 gap-3 pt-2">
+                <div id="step-1-box" class="p-3.5 rounded-lg border border-slate-800 bg-slate-950/60 flex items-center gap-3">
+                  <div id="step-1-icon" class="w-8 h-8 rounded-full flex items-center justify-center bg-slate-800 text-slate-400 text-xs font-bold">1</div>
+                  <div>
+                    <div class="text-xs font-semibold text-slate-200">Stage 1: Nmap + TLS + NSE</div>
+                    <div id="step-1-sub" class="text-[11px] text-slate-400">Port, Cert &amp; Banner Enumeration</div>
+                  </div>
+                </div>
+
+                <div id="step-2-box" class="p-3.5 rounded-lg border border-slate-800 bg-slate-950/60 flex items-center gap-3">
+                  <div id="step-2-icon" class="w-8 h-8 rounded-full flex items-center justify-center bg-slate-800 text-slate-400 text-xs font-bold">2</div>
+                  <div>
+                    <div class="text-xs font-semibold text-slate-200">Stage 2: Nuclei Verification</div>
+                    <div id="step-2-sub" class="text-[11px] text-slate-400">Targeted CVE &amp; Misconfig Check</div>
+                  </div>
+                </div>
+
+                <div id="step-3-box" class="p-3.5 rounded-lg border border-slate-800 bg-slate-950/60 flex items-center gap-3">
+                  <div id="step-3-icon" class="w-8 h-8 rounded-full flex items-center justify-center bg-slate-800 text-slate-400 text-xs font-bold">3</div>
+                  <div>
+                    <div class="text-xs font-semibold text-slate-200">Stage 3: State Diffing</div>
+                    <div id="step-3-sub" class="text-[11px] text-slate-400">Drift Alerts &amp; JSON Syslog</div>
+                  </div>
+                </div>
+              </div>
+
+              <div id="scan-error-banner" class="hidden mt-4 p-3 rounded-lg bg-rose-950/60 border border-rose-700/50 text-xs text-rose-200 font-mono whitespace-pre-wrap"></div>
+              <div id="scan-diff-banner" class="hidden mt-4 p-3.5 rounded-lg bg-indigo-950/50 border border-indigo-500/40 text-xs"></div>
+            </div>
+
+            <!-- Discovered Ports & Associated Nuclei Findings (Expandable Cards) -->
+            <div class="space-y-3">
+              <div class="flex items-center justify-between">
+                <h3 class="text-sm font-semibold text-white">Discovered Open Ports, TLS Certificates &amp; Service Vulnerabilities</h3>
+                <span id="scan-ports-summary-label" class="text-xs text-slate-400">0 open ports</span>
+              </div>
+              <div id="scan-ports-cards" class="space-y-3"></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- TAB 3: DRIFT / DIFF REPORT -->
+    <section id="tab-panel-diffs" class="hidden space-y-4">
+      <div class="bg-slate-900/90 border border-slate-800 rounded-xl p-5 shadow-xl">
+        <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 pb-4 border-b border-slate-800">
+          <div>
+            <h2 class="text-base font-semibold text-white">Attack Surface Drift &amp; Vulnerability Diff Timeline</h2>
+            <p class="text-xs text-slate-400">Automated comparison between consecutive scans per monitored asset (`NEW_PORT`, `CLOSED_PORT`, `BANNER_CHANGED`, `NEW_VULN`, `RESOLVED_VULN`)</p>
+          </div>
+          <div class="flex items-center gap-2">
+            <select id="diff-filter-asset" onchange="renderDiffTimeline()" class="px-3 py-1.5 text-xs rounded-lg bg-slate-950 border border-slate-700 text-slate-200">
+              <option value="all">All Assets</option>
+            </select>
+            <label class="inline-flex items-center gap-1.5 text-xs text-slate-300 cursor-pointer">
+              <input type="checkbox" id="diff-only-changes" onchange="renderDiffTimeline()" class="rounded bg-slate-950 border-slate-700 text-cyan-500" />
+              <span>Only show scans with drift</span>
+            </label>
+          </div>
+        </div>
+
+        <div id="diff-timeline-container" class="mt-5 space-y-4">
+          <div class="text-center py-10 text-slate-500 text-sm">No diff records calculated yet.</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- TAB 4: SCAN PROFILES & CUSTOM PORT BUILDER -->
+    <section id="tab-panel-profiles" class="hidden space-y-6">
+      <div class="grid grid-cols-1 lg:grid-cols-12 gap-6">
+        <!-- Left: Create / Edit Profile Form -->
+        <div class="lg:col-span-5">
+          <div class="bg-slate-900/90 border border-slate-800 rounded-xl p-5 shadow-xl space-y-4">
+            <div class="flex items-center justify-between border-b border-slate-800 pb-3">
+              <div>
+                <h3 id="profile-form-title" class="text-base font-bold text-white">Create / Edit Scan Profile</h3>
+                <p class="text-xs text-slate-400">Select custom ports, Nmap NSE Vulscan, and Nuclei verification options</p>
+              </div>
+              <button type="button" onclick="resetProfileForm()" class="text-xs text-cyan-400 hover:text-cyan-300">New / Reset</button>
+            </div>
+
+            <form id="profile-builder-form" onsubmit="handleProfileFormSubmit(event)" class="space-y-3.5">
+              <input type="hidden" id="prof-edit-mode" value="create" />
+
+              <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label class="block text-xs font-semibold text-slate-300 mb-1">Profile ID (slug)</label>
+                  <input type="text" id="prof-id" required placeholder="e.g. custom-web-db" class="w-full px-3 py-1.5 text-xs font-mono rounded-lg bg-slate-950 border border-slate-700 text-white focus:outline-none focus:border-cyan-500" />
+                </div>
+                <div>
+                  <label class="block text-xs font-semibold text-slate-300 mb-1">Display Name</label>
+                  <input type="text" id="prof-name" required placeholder="e.g. Custom Web & DB" class="w-full px-3 py-1.5 text-xs rounded-lg bg-slate-950 border border-slate-700 text-white focus:outline-none focus:border-cyan-500" />
+                </div>
+              </div>
+
+              <div>
+                <label class="block text-xs font-semibold text-slate-300 mb-1">Description</label>
+                <input type="text" id="prof-desc" placeholder="Short description of target services..." class="w-full px-3 py-1.5 text-xs rounded-lg bg-slate-950 border border-slate-700 text-white focus:outline-none focus:border-cyan-500" />
+              </div>
+
+              <div>
+                <label class="block text-xs font-semibold text-slate-300 mb-1">Ports to Scan (comma-separated, ranges, or preset)</label>
+                <input type="text" id="prof-ports" required placeholder="e.g. 80,443,3000,5000 or 22,80,443,3306 or 1-10000" class="w-full px-3 py-2 text-xs font-mono rounded-lg bg-slate-950 border border-slate-700 text-emerald-300 focus:outline-none focus:border-cyan-500" />
+                <div class="flex flex-wrap gap-1.5 mt-2">
+                  <button type="button" onclick="appendPortsToProfile('80,443')" class="text-[11px] px-2 py-0.5 rounded bg-slate-800 hover:bg-slate-700 text-cyan-300">+ Web (80,443)</button>
+                  <button type="button" onclick="appendPortsToProfile('3000,5000,8000,8080,8443,8888,9000')" class="text-[11px] px-2 py-0.5 rounded bg-slate-800 hover:bg-slate-700 text-cyan-300">+ Web Backend</button>
+                  <button type="button" onclick="appendPortsToProfile('22,389,636,139,445,111,2049')" class="text-[11px] px-2 py-0.5 rounded bg-slate-800 hover:bg-slate-700 text-cyan-300">+ SSH/LDAP/SMB/NFS</button>
+                  <button type="button" onclick="appendPortsToProfile('3306,5432,6379,9200,27017,1433')" class="text-[11px] px-2 py-0.5 rounded bg-slate-800 hover:bg-slate-700 text-cyan-300">+ Databases</button>
+                  <button type="button" onclick="appendPortsToProfile('25,53,110,143,465,587,993,995')" class="text-[11px] px-2 py-0.5 rounded bg-slate-800 hover:bg-slate-700 text-cyan-300">+ DNS/Mail</button>
+                  <button type="button" onclick="appendPortsToProfile('8006,9090,10000,32400')" class="text-[11px] px-2 py-0.5 rounded bg-slate-800 hover:bg-slate-700 text-cyan-300">+ Proxmox/Mgmt</button>
+                  <button type="button" onclick="setPortsOnProfile('top-100')" class="text-[11px] px-2 py-0.5 rounded bg-indigo-500/20 text-indigo-300">Top 100 (-F)</button>
+                  <button type="button" onclick="setPortsOnProfile('1-10000')" class="text-[11px] px-2 py-0.5 rounded bg-indigo-500/20 text-indigo-300">1-10000</button>
+                  <button type="button" onclick="setPortsOnProfile('1-65535')" class="text-[11px] px-2 py-0.5 rounded bg-indigo-500/20 text-indigo-300">All 65535 (-p-)</button>
+                </div>
+              </div>
+
+              <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label class="block text-xs font-semibold text-slate-300 mb-1">Nmap Service &amp; Timing Flags</label>
+                  <input type="text" id="prof-nmap-args" value="-sV --version-intensity 5 -T4" class="w-full px-3 py-1.5 text-xs font-mono rounded-lg bg-slate-950 border border-slate-700 text-slate-200" />
+                </div>
+                <div>
+                  <label class="block text-xs font-semibold text-slate-300 mb-1">Nuclei Severities</label>
+                  <input type="text" id="prof-nuclei-sev" value="low,medium,high,critical" class="w-full px-3 py-1.5 text-xs font-mono rounded-lg bg-slate-950 border border-slate-700 text-slate-200" />
+                </div>
+              </div>
+
+              <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label class="block text-xs font-semibold text-slate-300 mb-1">Nuclei Template Tags</label>
+                  <input type="text" id="prof-nuclei-tags" value="panel,exposure,misconfig,default-login" class="w-full px-3 py-1.5 text-xs font-mono rounded-lg bg-slate-950 border border-slate-700 text-slate-200" />
+                </div>
+                <div>
+                  <label class="block text-xs font-semibold text-slate-300 mb-1">Nuclei Rate Limit (req/s)</label>
+                  <input type="number" id="prof-rate-limit" value="50" min="5" max="300" class="w-full px-3 py-1.5 text-xs font-mono rounded-lg bg-slate-950 border border-slate-700 text-slate-200" />
+                </div>
+              </div>
+
+              <div class="flex flex-col gap-2 pt-1">
+                <label class="inline-flex items-center gap-2 text-xs text-slate-300 cursor-pointer">
+                  <input type="checkbox" id="prof-auto-scan" checked class="rounded bg-slate-950 border-slate-700 text-cyan-500" />
+                  <span>Enable Nuclei Automatic Tech-Stack CVE Matching (`-as`)</span>
+                </label>
+                <label class="inline-flex items-center gap-2 text-xs text-slate-300 cursor-pointer">
+                  <input type="checkbox" id="prof-non-http" checked class="rounded bg-slate-950 border-slate-700 text-cyan-500" />
+                  <span>Include Non-HTTP Network Templates (`host:port` for SSH/LDAP/SMB/DB)</span>
+                </label>
+                <label class="inline-flex items-center gap-2 text-xs text-amber-300 cursor-pointer">
+                  <input type="checkbox" id="prof-enable-vulscan" class="rounded bg-slate-950 border-slate-700 text-amber-500" />
+                  <span>Enable Nmap NSE `vulscan.nse` Offline CVE Lookup (`cve.csv` on Service Banners)</span>
+                </label>
+              </div>
+
+              <div class="pt-2">
+                <button type="submit" class="w-full py-2 rounded-lg text-xs font-semibold bg-cyan-500 hover:bg-cyan-400 text-slate-950 shadow-lg shadow-cyan-500/20 transition">
+                  Save Scan Profile
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+
+        <!-- Right: Profiles List -->
+        <div class="lg:col-span-7 space-y-3">
+          <div class="bg-slate-900/90 border border-slate-800 rounded-xl p-5 shadow-xl">
+            <h3 class="text-base font-bold text-white mb-1">Available Scan Profiles</h3>
+            <p class="text-xs text-slate-400 mb-4">Standard presets (`web`, `web-backend`, `server`, `quick`, `standard`, `deep`, `stealth`) and custom profiles</p>
+            <div id="profiles-list-container" class="space-y-3"></div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- TAB 5: SCHEDULED RUNS, DRIFT ALERTS & JSON SYSLOG -->
+    <section id="tab-panel-schedules" class="hidden space-y-6">
+      <div class="grid grid-cols-1 lg:grid-cols-12 gap-6">
+        
+        <!-- Left Column: Scheduled Scan Runs -->
+        <div class="lg:col-span-7 space-y-4">
+          <div class="bg-slate-900/90 border border-slate-800 rounded-xl p-5 shadow-xl space-y-4">
+            <div class="border-b border-slate-800 pb-3">
+              <h3 class="text-base font-bold text-white">Automated Scheduled Scan Runs</h3>
+              <p class="text-xs text-slate-400">Schedule recurring asset rescans and drift detection with up to 5 synchronous workers</p>
+            </div>
+
+            <form id="schedule-create-form" onsubmit="handleScheduleFormSubmit(event)" class="grid grid-cols-1 sm:grid-cols-12 gap-3 items-end bg-slate-950/60 p-4 rounded-xl border border-slate-800">
+              <div class="sm:col-span-4">
+                <label class="block text-[11px] font-semibold text-slate-300 mb-1">Schedule Name</label>
+                <input type="text" id="sched-name" required placeholder="e.g. Nightly Server Audit" class="w-full px-3 py-1.5 text-xs rounded-lg bg-slate-900 border border-slate-700 text-white" />
+              </div>
+
+              <div class="sm:col-span-4">
+                <label class="block text-[11px] font-semibold text-slate-300 mb-1">Target Scope</label>
+                <select id="sched-target-type" onchange="handleSchedTargetTypeChange()" class="w-full px-2.5 py-1.5 text-xs rounded-lg bg-slate-900 border border-slate-700 text-white">
+                  <option value="all">All Monitored Assets</option>
+                  <option value="tag">Assets with Tag...</option>
+                  <option value="asset">Single Target Host...</option>
+                </select>
+              </div>
+
+              <div class="sm:col-span-4">
+                <label class="block text-[11px] font-semibold text-slate-300 mb-1">Tag or Host (if applicable)</label>
+                <input type="text" id="sched-target-value" disabled placeholder="All Assets" class="w-full px-3 py-1.5 text-xs rounded-lg bg-slate-900 border border-slate-700 text-white disabled:opacity-50" />
+              </div>
+
+              <div class="sm:col-span-4">
+                <label class="block text-[11px] font-semibold text-slate-300 mb-1">Scan Profile</label>
+                <select id="sched-profile" class="w-full px-2.5 py-1.5 text-xs rounded-lg bg-slate-900 border border-slate-700 text-white"></select>
+              </div>
+
+              <div class="sm:col-span-3">
+                <label class="block text-[11px] font-semibold text-slate-300 mb-1">Frequency</label>
+                <select id="sched-interval" class="w-full px-2.5 py-1.5 text-xs rounded-lg bg-slate-900 border border-slate-700 text-white">
+                  <option value="60">Every 1 Hour</option>
+                  <option value="360">Every 6 Hours</option>
+                  <option value="720">Every 12 Hours</option>
+                  <option value="1440" selected>Daily (Every 24h)</option>
+                  <option value="10080">Weekly (Every 7d)</option>
+                </select>
+              </div>
+
+              <div class="sm:col-span-2">
+                <label class="block text-[11px] font-semibold text-slate-300 mb-1">Parallel Hosts</label>
+                <select id="sched-concurrency" class="w-full px-2.5 py-1.5 text-xs rounded-lg bg-slate-900 border border-slate-700 text-white">
+                  <option value="1">1x</option>
+                  <option value="2">2x</option>
+                  <option value="3" selected>3x</option>
+                  <option value="4">4x</option>
+                  <option value="5">5x</option>
+                </select>
+              </div>
+
+              <div class="sm:col-span-3">
+                <button type="submit" class="w-full py-1.5 px-3 rounded-lg text-xs font-semibold bg-cyan-500 hover:bg-cyan-400 text-slate-950 transition">
+                  + Add Schedule
+                </button>
+              </div>
+            </form>
+
+            <div id="schedules-list-container" class="space-y-2.5"></div>
+          </div>
+        </div>
+
+        <!-- Right Column: Syslog JSON & Instant Drift Alerts Configuration -->
+        <div class="lg:col-span-5 space-y-4">
+          <div class="bg-slate-900/90 border border-slate-800 rounded-xl p-5 shadow-xl space-y-4">
+            <div class="flex items-center justify-between border-b border-slate-800 pb-3">
+              <div>
+                <h3 class="text-base font-bold text-white">JSON Syslog &amp; Drift Alerts</h3>
+                <p class="text-xs text-slate-400">Syslog (`/dev/log` &amp; remote SIEM) + Webhook (Ntfy/Slack/Discord) + Postfix Email</p>
+              </div>
+              <button onclick="sendTestSyslogEvent()" class="px-3 py-1 rounded-lg text-xs font-semibold bg-indigo-500/20 hover:bg-indigo-500/30 text-indigo-300 border border-indigo-500/30">
+                Test Syslog &amp; Alerts
+              </button>
+            </div>
+
+            <form id="syslog-config-form" onsubmit="handleSyslogFormSubmit(event)" class="space-y-3 text-xs">
+              <div class="flex flex-wrap gap-4">
+                <label class="inline-flex items-center gap-2 text-slate-200 font-medium cursor-pointer">
+                  <input type="checkbox" id="syslog-enabled" checked class="rounded bg-slate-950 border-slate-700 text-cyan-500" />
+                  <span>Enable JSON Syslog</span>
+                </label>
+                <label class="inline-flex items-center gap-2 text-slate-200 font-medium cursor-pointer">
+                  <input type="checkbox" id="syslog-local" checked class="rounded bg-slate-950 border-slate-700 text-cyan-500" />
+                  <span>Local `/dev/log` (`logger -t nucmap`)</span>
+                </label>
+                <label class="inline-flex items-center gap-2 text-slate-200 font-medium cursor-pointer">
+                  <input type="checkbox" id="syslog-remote-enabled" class="rounded bg-slate-950 border-slate-700 text-cyan-500" />
+                  <span>Remote Syslog Server</span>
+                </label>
+              </div>
+
+              <div class="grid grid-cols-1 sm:grid-cols-12 gap-2 pt-1">
+                <div class="sm:col-span-6">
+                  <label class="block text-[11px] text-slate-400 mb-1">Remote Syslog Host / IP</label>
+                  <input type="text" id="syslog-remote-host" placeholder="e.g. 192.168.1.5" class="w-full px-2.5 py-1.5 rounded bg-slate-950 border border-slate-700 text-white font-mono" />
+                </div>
+                <div class="sm:col-span-3">
+                  <label class="block text-[11px] text-slate-400 mb-1">Port</label>
+                  <input type="number" id="syslog-remote-port" value="514" class="w-full px-2.5 py-1.5 rounded bg-slate-950 border border-slate-700 text-white font-mono" />
+                </div>
+                <div class="sm:col-span-3">
+                  <label class="block text-[11px] text-slate-400 mb-1">Protocol</label>
+                  <select id="syslog-remote-proto" class="w-full px-2.5 py-1.5 rounded bg-slate-950 border border-slate-700 text-white">
+                    <option value="udp">UDP</option>
+                    <option value="tcp">TCP</option>
+                  </select>
+                </div>
+              </div>
+
+              <!-- Webhook & Postfix Email Drift Alerts -->
+              <div class="border-t border-slate-800 pt-3 space-y-2.5">
+                <div class="text-[11px] font-semibold uppercase tracking-wider text-cyan-400">Instant Drift &amp; Vuln Push Alerts</div>
+                <div class="grid grid-cols-1 sm:grid-cols-12 gap-2 items-center">
+                  <div class="sm:col-span-4">
+                    <label class="inline-flex items-center gap-1.5 text-slate-200 cursor-pointer">
+                      <input type="checkbox" id="alert-webhook-enabled" class="rounded bg-slate-950 border-slate-700 text-cyan-500" />
+                      <span>Webhook / Ntfy</span>
+                    </label>
+                  </div>
+                  <div class="sm:col-span-8">
+                    <input type="text" id="alert-webhook-url" placeholder="https://ntfy.sh/mytopic or Discord/Slack Webhook URL" class="w-full px-2.5 py-1.5 rounded bg-slate-950 border border-slate-700 text-white font-mono" />
+                  </div>
+                </div>
+
+                <div class="grid grid-cols-1 sm:grid-cols-12 gap-2 items-center">
+                  <div class="sm:col-span-4">
+                    <label class="inline-flex items-center gap-1.5 text-slate-200 cursor-pointer">
+                      <input type="checkbox" id="alert-smtp-enabled" class="rounded bg-slate-950 border-slate-700 text-cyan-500" />
+                      <span>Postfix Email</span>
+                    </label>
+                  </div>
+                  <div class="sm:col-span-8">
+                    <input type="email" id="alert-smtp-to" placeholder="Alert recipient email (via local 127.0.0.1:25)" class="w-full px-2.5 py-1.5 rounded bg-slate-950 border border-slate-700 text-white font-mono" />
+                  </div>
+                </div>
+
+                <div class="flex flex-wrap items-center gap-3 pt-1">
+                  <label class="inline-flex items-center gap-1.5 text-slate-300">
+                    <input type="checkbox" id="alert-on-new-port" checked class="rounded bg-slate-950 border-slate-700 text-cyan-500" />
+                    <span>Alert on NEW_PORT</span>
+                  </label>
+                  <label class="inline-flex items-center gap-1.5 text-slate-300">
+                    <input type="checkbox" id="alert-on-new-vuln" checked class="rounded bg-slate-950 border-slate-700 text-cyan-500" />
+                    <span>Alert on NEW_VULN &ge;</span>
+                  </label>
+                  <select id="alert-min-severity" class="px-2 py-1 rounded bg-slate-950 border border-slate-700 text-white">
+                    <option value="critical">Critical</option>
+                    <option value="high" selected>High</option>
+                    <option value="medium">Medium</option>
+                    <option value="low">Low</option>
+                  </select>
+                </div>
+              </div>
+
+              <div class="flex flex-wrap gap-3 pt-1 border-t border-slate-800">
+                <label class="inline-flex items-center gap-1.5 text-slate-300">
+                  <input type="checkbox" id="syslog-log-scans" checked class="rounded bg-slate-950 border-slate-700 text-cyan-500" />
+                  <span>Scan Lifecycle</span>
+                </label>
+                <label class="inline-flex items-center gap-1.5 text-slate-300">
+                  <input type="checkbox" id="syslog-log-ports" checked class="rounded bg-slate-950 border-slate-700 text-cyan-500" />
+                  <span>Open Ports</span>
+                </label>
+                <label class="inline-flex items-center gap-1.5 text-slate-300">
+                  <input type="checkbox" id="syslog-log-vulns" checked class="rounded bg-slate-950 border-slate-700 text-cyan-500" />
+                  <span>Nuclei Vulns</span>
+                </label>
+                <label class="inline-flex items-center gap-1.5 text-slate-300">
+                  <input type="checkbox" id="syslog-log-diffs" checked class="rounded bg-slate-950 border-slate-700 text-cyan-500" />
+                  <span>Drift Events</span>
+                </label>
+              </div>
+
+              <div class="pt-1">
+                <button type="submit" class="w-full py-1.5 rounded-lg text-xs font-semibold bg-slate-800 hover:bg-slate-700 text-cyan-300 border border-slate-700 transition">
+                  Save Syslog &amp; Alert Settings
+                </button>
+              </div>
+            </form>
+
+            <div>
+              <div class="flex items-center justify-between mb-1.5">
+                <span class="text-[11px] font-semibold uppercase tracking-wider text-slate-400">Recent JSON Syslog Stream</span>
+                <button onclick="fetchSyslogData()" class="text-[11px] text-cyan-400 hover:text-cyan-300">Refresh</button>
+              </div>
+              <div id="syslog-events-preview" class="bg-slate-950 border border-slate-800 rounded-lg p-3 font-mono text-[11px] text-emerald-300 h-52 overflow-y-auto space-y-1.5"></div>
+            </div>
+          </div>
+        </div>
+
+      </div>
+    </section>
+
+  </main>
+
+  <!-- MODAL 1: SIGNATURE & TEMPLATE UPDATER -->
+  <div id="signature-modal" class="fixed inset-0 z-50 hidden bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-4">
+    <div class="bg-slate-900 border border-slate-700 rounded-xl max-w-3xl w-full overflow-hidden shadow-2xl flex flex-col max-h-[85vh]">
+      <div class="px-5 py-4 border-b border-slate-800 flex items-center justify-between">
+        <div class="flex items-center gap-2.5">
+          <h3 class="text-base font-bold text-white">Signature &amp; Template Updater</h3>
+          <span id="sig-modal-status-badge" class="px-2 py-0.5 text-xs font-semibold rounded-full bg-slate-800 text-slate-300">Idle</span>
+        </div>
+        <button onclick="closeSignatureModal()" class="text-slate-400 hover:text-white">
+          <svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" />
+          </svg>
+        </button>
+      </div>
+
+      <div class="p-5 space-y-4 flex-1 overflow-y-auto">
+        <div class="text-xs text-slate-400 space-y-1">
+          <p>Executes background maintenance tasks and streams output below:</p>
+          <ul class="list-disc list-inside text-slate-300 font-mono text-[11px]">
+            <li>nuclei -update-templates</li>
+            <li>nmap --script-updatedb</li>
+            <li>/usr/share/nmap/scripts/vulscan/utilities/updater/updateFiles.sh (if present)</li>
+          </ul>
+        </div>
+
+        <div class="bg-slate-950 border border-slate-800 rounded-lg p-4 font-mono text-xs text-emerald-300 h-72 overflow-y-auto whitespace-pre-wrap" id="sig-modal-log">Click "Start Signature Update" to run nuclei &amp; nmap template updates...</div>
+      </div>
+
+      <div class="px-5 py-3.5 bg-slate-950/60 border-t border-slate-800 flex items-center justify-between">
+        <span id="sig-modal-last-updated" class="text-xs text-slate-400">Last updated: Never</span>
+        <div class="flex items-center gap-2">
+          <button onclick="closeSignatureModal()" class="px-3.5 py-1.5 rounded-lg text-xs font-medium bg-slate-800 hover:bg-slate-700 text-slate-300">Close</button>
+          <button id="btn-start-sig-update" onclick="startSignatureUpdate()" class="px-4 py-1.5 rounded-lg text-xs font-semibold bg-cyan-500 hover:bg-cyan-400 text-slate-950">Start Signature Update</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- MODAL 2: ADD / EDIT ASSET MODAL -->
+  <div id="asset-modal" class="fixed inset-0 z-50 hidden bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-4">
+    <div class="bg-slate-900 border border-slate-700 rounded-xl max-w-md w-full overflow-hidden shadow-2xl">
+      <div class="px-5 py-4 border-b border-slate-800 flex items-center justify-between">
+        <h3 id="asset-modal-title" class="text-base font-bold text-white">Add Monitored Asset</h3>
+        <button onclick="closeAssetModal()" class="text-slate-400 hover:text-white">
+          <svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" />
+          </svg>
+        </button>
+      </div>
+
+      <form id="asset-modal-form" onsubmit="handleAssetModalSubmit(event)" class="p-5 space-y-4">
+        <input type="hidden" id="asset-modal-id" value="" />
+        <div>
+          <label class="block text-xs font-semibold text-slate-300 mb-1">Target (IPv4, CIDR, or FQDN)</label>
+          <input
+            type="text"
+            id="asset-modal-target"
+            required
+            placeholder="e.g. 192.168.1.10 or host.example.internal"
+            class="w-full px-3 py-2 text-sm rounded-lg bg-slate-950 border border-slate-700 text-white focus:outline-none focus:border-cyan-500"
+          />
+        </div>
+
+        <div>
+          <label class="block text-xs font-semibold text-slate-300 mb-1">Custom Tags (comma-separated)</label>
+          <input
+            type="text"
+            id="asset-modal-tags"
+            placeholder="LAN, IoT, DMZ, Infra"
+            class="w-full px-3 py-2 text-sm rounded-lg bg-slate-950 border border-slate-700 text-white focus:outline-none focus:border-cyan-500"
+          />
+          <div class="flex flex-wrap gap-1.5 mt-2">
+            <button type="button" onclick="addTagChip('LAN')" class="text-[11px] px-2 py-0.5 rounded bg-slate-800 hover:bg-slate-700 text-cyan-300">+ LAN</button>
+            <button type="button" onclick="addTagChip('IoT')" class="text-[11px] px-2 py-0.5 rounded bg-slate-800 hover:bg-slate-700 text-cyan-300">+ IoT</button>
+            <button type="button" onclick="addTagChip('DMZ')" class="text-[11px] px-2 py-0.5 rounded bg-slate-800 hover:bg-slate-700 text-cyan-300">+ DMZ</button>
+            <button type="button" onclick="addTagChip('Infra')" class="text-[11px] px-2 py-0.5 rounded bg-slate-800 hover:bg-slate-700 text-cyan-300">+ Infra</button>
+            <button type="button" onclick="addTagChip('Web')" class="text-[11px] px-2 py-0.5 rounded bg-slate-800 hover:bg-slate-700 text-cyan-300">+ Web</button>
+          </div>
+        </div>
+
+        <div>
+          <label class="block text-xs font-semibold text-slate-300 mb-1">Default Scan Profile</label>
+          <select
+            id="asset-modal-profile"
+            class="w-full px-3 py-2 text-sm rounded-lg bg-slate-950 border border-slate-700 text-white focus:outline-none focus:border-cyan-500"
+          ></select>
+        </div>
+
+        <div class="pt-2 flex items-center justify-end gap-2">
+          <button type="button" onclick="closeAssetModal()" class="px-4 py-2 rounded-lg text-xs font-medium bg-slate-800 hover:bg-slate-700 text-slate-300">Cancel</button>
+          <button type="submit" class="px-4 py-2 rounded-lg text-xs font-semibold bg-cyan-500 hover:bg-cyan-400 text-slate-950">Save Asset</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- MODAL 3: ASSET SCAN & DIFF HISTORY MODAL -->
+  <div id="history-modal" class="fixed inset-0 z-50 hidden bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-4">
+    <div class="bg-slate-900 border border-slate-700 rounded-xl max-w-3xl w-full overflow-hidden shadow-2xl flex flex-col max-h-[85vh]">
+      <div class="px-5 py-4 border-b border-slate-800 flex items-center justify-between">
+        <div>
+          <h3 id="history-modal-title" class="text-base font-bold text-white">Asset History</h3>
+          <p class="text-xs text-slate-400">Historical scans and drift comparisons for this asset</p>
+        </div>
+        <button onclick="closeHistoryModal()" class="text-slate-400 hover:text-white">
+          <svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" />
+          </svg>
+        </button>
+      </div>
+      <div id="history-modal-body" class="p-5 space-y-5 overflow-y-auto flex-1"></div>
+      <div class="px-5 py-3 bg-slate-950/60 border-t border-slate-800 flex justify-end">
+        <button onclick="closeHistoryModal()" class="px-4 py-1.5 rounded-lg text-xs font-medium bg-slate-800 hover:bg-slate-700 text-slate-200">Close</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- MODAL 4: SUBNET HOST DISCOVERY WIZARD (nmap -sn ARP/Ping Sweep) -->
+  <div id="discover-modal" class="fixed inset-0 z-50 hidden bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-4">
+    <div class="bg-slate-900 border border-slate-700 rounded-xl max-w-3xl w-full overflow-hidden shadow-2xl flex flex-col max-h-[88vh]">
+      <div class="px-5 py-4 border-b border-slate-800 flex items-center justify-between">
+        <div>
+          <h3 class="text-base font-bold text-white">Subnet Host Discovery Wizard (`nmap -sn`)</h3>
+          <p class="text-xs text-slate-400">Fast ARP / Ping sweep to discover live hosts, MAC vendors, and hostnames on your subnet</p>
+        </div>
+        <button onclick="closeDiscoverModal()" class="text-slate-400 hover:text-white">
+          <svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" />
+          </svg>
+        </button>
+      </div>
+
+      <div class="p-5 space-y-4 flex-1 overflow-y-auto">
+        <form onsubmit="runSubnetDiscovery(event)" class="flex flex-col sm:flex-row gap-2.5">
+          <input
+            type="text"
+            id="discover-cidr-input"
+            required
+            value="192.168.1.0/24"
+            placeholder="Subnet CIDR (e.g. 192.168.1.0/24)"
+            class="flex-1 px-3.5 py-2 text-sm font-mono rounded-lg bg-slate-950 border border-slate-700 text-white focus:outline-none focus:border-emerald-500"
+          />
+          <button
+            type="submit"
+            id="btn-run-discovery"
+            class="px-5 py-2 rounded-lg text-xs font-semibold bg-emerald-500 hover:bg-emerald-400 text-slate-950 transition"
+          >
+            Run ARP / Ping Sweep
+          </button>
+        </form>
+
+        <div id="discover-results-area" class="space-y-3">
+          <div class="p-8 text-center text-xs text-slate-500 border border-slate-800 rounded-xl bg-slate-950/50">
+            Enter a subnet CIDR above (e.g. `192.168.1.0/24`) and click "Run ARP / Ping Sweep" to discover live hosts in ~3 seconds.
+          </div>
+        </div>
+      </div>
+
+      <div class="px-5 py-3.5 bg-slate-950/60 border-t border-slate-800 flex flex-wrap items-center justify-between gap-3">
+        <div class="flex items-center gap-2 text-xs">
+          <input type="text" id="discover-import-tags" value="LAN" placeholder="Tags (e.g. LAN)" class="px-2.5 py-1 rounded bg-slate-900 border border-slate-700 text-white w-28" />
+          <select id="discover-import-profile" class="px-2.5 py-1 rounded bg-slate-900 border border-slate-700 text-white"></select>
+        </div>
+        <div class="flex items-center gap-2">
+          <button onclick="closeDiscoverModal()" class="px-3.5 py-1.5 rounded-lg text-xs font-medium bg-slate-800 hover:bg-slate-700 text-slate-300">Close</button>
+          <button onclick="importDiscoveredHosts(false)" class="px-3.5 py-1.5 rounded-lg text-xs font-semibold bg-slate-800 hover:bg-slate-700 text-cyan-300 border border-cyan-500/30">
+            Import Selected
+          </button>
+          <button onclick="importDiscoveredHosts(true)" class="px-4 py-1.5 rounded-lg text-xs font-semibold bg-cyan-500 hover:bg-cyan-400 text-slate-950">
+            Import &amp; Scan Selected
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script src="/app.js"></script>
+</body>
+</html>

@@ -1,0 +1,22 @@
+[Unit]
+Description=NucMap ASM & Vulnerability Scanner
+After=network.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/opt/nucmap
+Environment=NODE_ENV=production
+Environment=PORT=3000
+Environment=DB_PATH=/var/lib/nucmap/nucmap.db
+Environment=HOME=/root
+ExecStart=/usr/bin/node /opt/nucmap/src/server.js
+Restart=always
+RestartSec=5
+MemoryMax=1536M
+TasksMax=512
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

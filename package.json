@@ -1,0 +1,39 @@
+{
+  "name": "nucmap",
+  "version": "0.1.1",
+  "description": "NucMap — Self-Hosted Attack Surface Management (ASM) & Vulnerability Scanner orchestrating Nmap, ProjectDiscovery Nuclei, and Nmap Vulscan with Drift Detection",
+  "main": "src/server.js",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/johestephan/NucMap.git"
+  },
+  "homepage": "https://github.com/johestephan/NucMap#readme",
+  "bugs": {
+    "url": "https://github.com/johestephan/NucMap/issues"
+  },
+  "keywords": [
+    "nmap",
+    "nuclei",
+    "vulnerability-scanner",
+    "attack-surface-management",
+    "asm",
+    "security",
+    "proxmox",
+    "lxc",
+    "self-hosted"
+  ],
+  "author": "johestephan",
+  "license": "MIT",
+  "scripts": {
+    "start": "node src/server.js",
+    "dev": "node --watch src/server.js"
+  },
+  "dependencies": {
+    "better-sqlite3": "^11.3.0",
+    "express": "^4.21.1",
+    "xml2js": "^0.6.2"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}

@@ -1,0 +1,31 @@
+services:
+  nucmap:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: ghcr.io/johestephan/nucmap:0.1.1
+    container_name: nucmap
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    # Optional: Uncomment 'network_mode: host' and 'cap_add' (and comment out 'ports' above)
+    # if you want Nmap to perform Layer-2 ARP subnet discovery (-sn) and raw SYN scans (-sS) on your host LAN.
+    # network_mode: host
+    # cap_add:
+    #   - NET_RAW
+    #   - NET_ADMIN
+    environment:
+      - NODE_ENV=production
+      - PORT=3000
+      - DB_PATH=/data/nucmap.db
+      - DISABLE_PORT_80=true
+      # Optional: Set NUCMAP_PASSWORD (and NUCMAP_USER) to require HTTP Basic Auth, or NUCMAP_API_KEY for API Bearer Auth
+      # - NUCMAP_USER=admin
+      # - NUCMAP_PASSWORD=changeme
+    volumes:
+      - nucmap_data:/data
+      - nucmap_templates:/root/nuclei-templates
+
+volumes:
+  nucmap_data:
+  nucmap_templates:
