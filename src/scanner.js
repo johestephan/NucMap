@@ -249,10 +249,11 @@ const NUCLEI_BIN = resolveBinary('/usr/local/bin/nuclei', 'nuclei');
 
 const activeScanProcesses = new Map();
 
-function runProcess(cmd, args, { scanId = null, onStdoutLine, onStderrLine, timeoutMs = 1200 * 1000 } = {}) {
+function runProcess(cmd, args, { scanId = null, cwd = undefined, onStdoutLine, onStderrLine, timeoutMs = 1200 * 1000 } = {}) {
   return new Promise((resolve, reject) => {
     const child = spawn(cmd, args, {
       shell: false,
+      cwd,
       env: {
         ...process.env,
         HOME: process.env.HOME || '/root',
@@ -1111,20 +1112,39 @@ async function runSignatureUpdateJob() {
   }
 
   appendUpdaterLog('--- [3/3] Checking Nmap Vulscan Local CSV Databases ---');
+  const vulscanDir = '/usr/share/nmap/scripts/vulscan';
+  const vulscanGitDir = '/usr/share/nmap/scripts/vulscan/.git';
   const vulscanUpdaterPath = '/usr/share/nmap/scripts/vulscan/utilities/updater/updateFiles.sh';
   const vulscanUpdateSh = '/usr/share/nmap/scripts/vulscan/update.sh';
 
   try {
-    if (fs.existsSync(vulscanUpdaterPath)) {
-      appendUpdaterLog(`Found ${vulscanUpdaterPath}, executing...`);
-      const res = await runProcess('/bin/sh', [vulscanUpdaterPath], {
+    if (fs.existsSync(vulscanGitDir)) {
+      appendUpdaterLog(`Updating Vulscan repository via git pull in ${vulscanDir}...`);
+      const gitRes = await runProcess('git', ['-C', vulscanDir, 'pull', '--ff-only'], {
+        cwd: vulscanDir,
+        onStdoutLine: (l) => l.trim() && appendUpdaterLog(`[vulscan-git] ${l}`),
+        onStderrLine: (l) => l.trim() && appendUpdaterLog(`[vulscan-git] ${l}`),
+        timeoutMs: 120 * 1000
+      });
+      appendUpdaterLog(`Vulscan git pull finished (exit code ${gitRes.code}).`);
+    } else if (fs.existsSync(vulscanUpdateSh)) {
+      appendUpdaterLog(`Found ${vulscanUpdateSh}, executing with /bin/bash...`);
+      const res = await runProcess('/bin/bash', [vulscanUpdateSh], {
+        cwd: path.dirname(vulscanUpdateSh),
         onStdoutLine: (l) => l.trim() && appendUpdaterLog(`[vulscan] ${l}`),
         onStderrLine: (l) => l.trim() && appendUpdaterLog(`[vulscan] ${l}`),
         timeoutMs: 180 * 1000
       });
       appendUpdaterLog(`Vulscan updater finished (exit code ${res.code}).`);
-    } else if (fs.existsSync(vulscanUpdateSh)) {
-      appendUpdaterLog(`Found ${vulscanUpdateSh}, local CSV databases verified.`);
+    } else if (fs.existsSync(vulscanUpdaterPath)) {
+      appendUpdaterLog(`Found ${vulscanUpdaterPath}, executing with /bin/bash...`);
+      const res = await runProcess('/bin/bash', [vulscanUpdaterPath], {
+        cwd: path.dirname(vulscanUpdaterPath),
+        onStdoutLine: (l) => l.trim() && appendUpdaterLog(`[vulscan] ${l}`),
+        onStderrLine: (l) => l.trim() && appendUpdaterLog(`[vulscan] ${l}`),
+        timeoutMs: 180 * 1000
+      });
+      appendUpdaterLog(`Vulscan updater finished (exit code ${res.code}).`);
     } else {
       appendUpdaterLog('Vulscan optional updater script not installed, skipping.');
     }
