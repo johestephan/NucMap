@@ -463,30 +463,30 @@ function renderAssetsTable() {
           <td class="px-4 py-4 align-top">
             <input type="checkbox" ${isChecked} onchange="toggleAssetSelection('${escapeHtml(asset.target)}', this.checked)" class="rounded bg-slate-950 border-slate-700 text-cyan-500" />
           </td>
-          <td class="px-4 py-4 align-top">
-            <div class="flex items-center gap-2">
-              <span class="font-bold text-white font-mono">${escapeHtml(asset.target)}</span>
-              <span class="text-[10px] uppercase px-1.5 py-0.5 rounded bg-slate-800 text-slate-400 border border-slate-700">${escapeHtml(
+          <td class="px-4 py-4 align-top max-w-[220px] sm:max-w-[280px]">
+            <div class="flex flex-wrap items-center gap-1.5">
+              <span class="font-bold text-white font-mono break-all" title="${escapeHtml(asset.target)}">${escapeHtml(asset.target)}</span>
+              <span class="text-[10px] uppercase px-1.5 py-0.5 rounded bg-slate-800 text-slate-400 border border-slate-700 shrink-0">${escapeHtml(
                 asset.default_profile || 'standard'
               )}</span>
             </div>
             ${
               asset.hostname
-                ? `<div class="text-xs text-slate-400 mt-0.5">${escapeHtml(asset.hostname)}</div>`
+                ? `<div class="text-xs text-slate-400 mt-0.5 break-all" title="${escapeHtml(asset.hostname)}">${escapeHtml(asset.hostname)}</div>`
                 : ''
             }
             ${tagsHtml ? `<div class="flex flex-wrap gap-1 mt-1.5">${tagsHtml}</div>` : ''}
           </td>
 
-          <td class="px-4 py-4 align-top">
+          <td class="px-4 py-4 align-top max-w-[170px]">
             ${
               asset.mac_address
-                ? `<div class="text-xs font-mono text-slate-200">${escapeHtml(asset.mac_address)}</div>`
+                ? `<div class="text-xs font-mono text-slate-200 whitespace-nowrap">${escapeHtml(asset.mac_address)}</div>`
                 : `<div class="text-xs text-slate-500">—</div>`
             }
             ${
               asset.vendor
-                ? `<div class="text-[11px] text-slate-400 mt-0.5">${escapeHtml(asset.vendor)}</div>`
+                ? `<div class="text-[11px] text-slate-400 mt-0.5 break-words" title="${escapeHtml(asset.vendor)}">${escapeHtml(asset.vendor)}</div>`
                 : ''
             }
           </td>
@@ -1909,6 +1909,8 @@ function openAddAssetModal() {
   document.getElementById('asset-modal-title').textContent = 'Add Monitored Asset';
   document.getElementById('asset-modal-target').value = '';
   document.getElementById('asset-modal-target').disabled = false;
+  const hostInput = document.getElementById('asset-modal-hostname');
+  if (hostInput) hostInput.value = '';
   document.getElementById('asset-modal-tags').value = 'LAN';
   populateProfileDropdowns();
   document.getElementById('asset-modal-profile').value = 'standard';
@@ -1923,6 +1925,8 @@ function openEditAssetModal(assetId) {
   document.getElementById('asset-modal-title').textContent = `Edit Asset: ${asset.target}`;
   document.getElementById('asset-modal-target').value = asset.target;
   document.getElementById('asset-modal-target').disabled = true;
+  const hostInput = document.getElementById('asset-modal-hostname');
+  if (hostInput) hostInput.value = asset.hostname || '';
   document.getElementById('asset-modal-tags').value = (asset.tags || []).join(', ');
   document.getElementById('asset-modal-profile').value = asset.default_profile || 'standard';
   document.getElementById('asset-modal').classList.remove('hidden');
@@ -1948,6 +1952,7 @@ async function handleAssetModalSubmit(e) {
   e.preventDefault();
   const id = document.getElementById('asset-modal-id').value;
   const target = document.getElementById('asset-modal-target').value.trim();
+  const hostname = (document.getElementById('asset-modal-hostname')?.value || '').trim();
   const tags = document
     .getElementById('asset-modal-tags')
     .value.split(',')
@@ -1961,13 +1966,13 @@ async function handleAssetModalSubmit(e) {
       res = await fetch(`/api/assets/${id}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ tags, default_profile })
+        body: JSON.stringify({ hostname, tags, default_profile })
       });
     } else {
       res = await fetch('/api/assets', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ target, tags, default_profile })
+        body: JSON.stringify({ target, hostname, tags, default_profile })
       });
     }
     const data = await res.json();

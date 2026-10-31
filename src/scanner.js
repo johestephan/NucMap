@@ -10,7 +10,19 @@ function loadProfiles() {
   return db.getAllProfilesMap();
 }
 
-const HOSTNAME_REGEX = /^(?=.{1,253}$)[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(\.[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)*$/;
+function isValidHostname(str) {
+  if (!str || str.length > 253) return false;
+  const cleaned = str.endsWith('.') ? str.slice(0, -1) : str;
+  const labels = cleaned.split('.');
+  if (labels.length === 0) return false;
+  for (const label of labels) {
+    if (!label || label.length > 63) return false;
+    if (!/^[a-zA-Z0-9_]([a-zA-Z0-9_-]{0,61}[a-zA-Z0-9_])?$/.test(label)) {
+      return false;
+    }
+  }
+  return true;
+}
 
 function isValidIpv4OrRange(ipPart) {
   const octets = ipPart.split('.');
@@ -59,8 +71,8 @@ function sanitizeAndValidateTarget(rawTarget) {
     return target;
   }
 
-  if (!isValidIpv4OrRange(target) && !HOSTNAME_REGEX.test(target)) {
-    throw new Error('Target contains invalid characters. Only valid IPv4, CIDR (e.g. 192.168.1.0/24), or RFC-1123 FQDN allowed.');
+  if (!isValidIpv4OrRange(target) && !isValidHostname(target)) {
+    throw new Error('Target contains invalid characters. Only valid IPv4, CIDR (e.g. 192.168.1.0/24), or FQDN/hostname allowed.');
   }
 
   return target;
@@ -103,8 +115,8 @@ function validateAndBuildProfile(input) {
     .replace(/-+/g, '-')
     .replace(/^-|-$/g, '');
 
-  if (!rawId || rawId.length < 2 || rawId.length > 48) {
-    throw new Error('Profile ID/Name must be 2–48 alphanumeric characters.');
+  if (!rawId || rawId.length < 2 || rawId.length > 100) {
+    throw new Error('Profile ID/Name must be 2–100 alphanumeric characters.');
   }
 
   const name = String(input.name || rawId).trim();

@@ -496,7 +496,7 @@ app.get('/api/assets', (req, res) => {
 
 app.post('/api/assets', (req, res) => {
   try {
-    const { target, tags, default_profile } = req.body || {};
+    const { target, hostname, tags, default_profile } = req.body || {};
     const cleanTarget = scanner.sanitizeAndValidateTarget(target);
     const profiles = scanner.loadProfiles();
     const profileKey = (default_profile || 'standard').toLowerCase();
@@ -510,6 +510,7 @@ app.post('/api/assets', (req, res) => {
 
     const asset = db.upsertAsset({
       target: cleanTarget,
+      hostname: hostname ? String(hostname).trim() : null,
       tags: parsedTags,
       default_profile: validProfile,
       save_asset: true

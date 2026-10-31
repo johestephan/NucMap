@@ -77,6 +77,7 @@ CT_BRIDGE="${CT_BRIDGE:-vmbr0}"
 CT_IP="${CT_IP:-dhcp}"
 CT_GW="${CT_GW:-}"
 CT_UNPRIVILEGED="${CT_UNPRIVILEGED:-1}"
+CT_DEBIAN_VER="${CT_DEBIAN_VER:-12}"
 CT_STORAGE="${CT_STORAGE:-}"
 TEMPLATE_STORAGE="${TEMPLATE_STORAGE:-local}"
 AUTO_YES=0
@@ -97,14 +98,21 @@ if [[ -z "${CT_STORAGE}" ]]; then
   fi
 fi
 
+# Detect valid template storage pool that supports 'vztmpl'
+if ! pvesm status -content vztmpl 2>/dev/null | awk 'NR>1 {print $1}' | grep -qx "${TEMPLATE_STORAGE}"; then
+  DETECTED_TPL_STORAGE="$(pvesm status -content vztmpl 2>/dev/null | awk 'NR==2 {print $1}')"
+  TEMPLATE_STORAGE="${DETECTED_TPL_STORAGE:-local}"
+fi
+
 if [[ "${AUTO_YES}" -eq 0 && -t 0 ]]; then
   echo -e "Default LXC Settings:"
   echo -e "  • Container ID:  ${BL}${CT_ID}${CL}"
   echo -e "  • Hostname:      ${BL}${CT_HOSTNAME}${CL}"
+  echo -e "  • OS Template:   ${BL}Debian ${CT_DEBIAN_VER} (Bookworm - PVE 8/9 Compatible)${CL}"
   echo -e "  • CPU / RAM:     ${BL}${CT_CORES} vCPU / ${CT_RAM} MB RAM${CL}"
   echo -e "  • Disk / Pool:   ${BL}${CT_DISK} GB on ${CT_STORAGE}${CL}"
   echo -e "  • Network:       ${BL}${CT_BRIDGE} (${CT_IP})${CL}"
-  echo -e "  • Container Type:${BL} Unprivileged Debian 12 LXC${CL}"
+  echo -e "  • Container Type:${BL} $( [[ "${CT_UNPRIVILEGED}" == "1" ]] && echo "Unprivileged" || echo "Privileged" )${CL}"
   echo ""
   read -r -p "Use Default Settings? [Y/n/advanced]: " MODE_CHOICE
   MODE_CHOICE="${MODE_CHOICE:-Y}"
@@ -115,6 +123,12 @@ if [[ "${AUTO_YES}" -eq 0 && -t 0 ]]; then
 
     read -r -p "Enter Hostname [${CT_HOSTNAME}]: " input_hn
     CT_HOSTNAME="${input_hn:-${CT_HOSTNAME}}"
+
+    read -r -p "Enter Debian Version (12 or 13) [${CT_DEBIAN_VER}]: " input_deb
+    CT_DEBIAN_VER="${input_deb:-${CT_DEBIAN_VER}}"
+
+    read -r -p "Unprivileged Container? (1=Unprivileged, 0=Privileged) [${CT_UNPRIVILEGED}]: " input_unpriv
+    CT_UNPRIVILEGED="${input_unpriv:-${CT_UNPRIVILEGED}}"
 
     read -r -p "Enter CPU Cores [${CT_CORES}]: " input_cores
     CT_CORES="${input_cores:-${CT_CORES}}"
@@ -143,18 +157,46 @@ if [[ "${AUTO_YES}" -eq 0 && -t 0 ]]; then
   fi
 fi
 
-# Verify CT_ID is not already in use
-if pct status "${CT_ID}" >/dev/null 2>&1; then
-  msg_err "Container ID ${CT_ID} already exists on this Proxmox host."
+# Sanitize hostname for LXC (lowercase alphanumeric & hyphens)
+CT_HOSTNAME="$(echo "${CT_HOSTNAME}" | tr '[:upper:]' '[:lower:]' | sed -E 's/[^a-z0-9-]+/-/g; s/^-+|-+$//g')"
+CT_HOSTNAME="${CT_HOSTNAME:-nucmap}"
+
+# Ensure static IP has CIDR mask (e.g., /24) so pve-bridge does not fail at LXC sequence 7
+if [[ "${CT_IP}" != "dhcp" && "${CT_IP}" != */* ]]; then
+  echo -e " ${INFO} ${YW}Adding default /24 CIDR prefix to static IP: ${CT_IP}/24${CL}"
+  CT_IP="${CT_IP}/24"
 fi
 
-# 1. Locate or download Debian 12/13 LXC template
+# Check if CT_ID already exists (e.g. from a previous failed attempt)
+if pct status "${CT_ID}" >/dev/null 2>&1; then
+  EXISTING_STATUS="$(pct status "${CT_ID}" | awk '{print $2}')"
+  if [[ "${AUTO_YES}" -eq 0 && -t 0 ]]; then
+    read -r -p "Container ${CT_ID} already exists (${EXISTING_STATUS}). Destroy and recreate it? [y/N]: " DESTROY_CHOICE
+    if [[ "${DESTROY_CHOICE,,}" == "y" || "${DESTROY_CHOICE,,}" == "yes" ]]; then
+      msg_info "Stopping and destroying existing container ${CT_ID}"
+      pct stop "${CT_ID}" >/dev/null 2>&1 || true
+      pct destroy "${CT_ID}" --purge >/dev/null 2>&1 || pct destroy "${CT_ID}"
+      msg_ok "Removed existing container ${CT_ID}"
+    else
+      msg_err "Aborted because Container ID ${CT_ID} already exists."
+    fi
+  else
+    msg_err "Container ID ${CT_ID} already exists on this Proxmox host."
+  fi
+fi
+
+# 1. Locate or download Debian 12 (default) LXC template
+# Note: Debian 12 (Bookworm) is used by default because PVE 8.x's PVE::LXC::Setup::Debian
+# rejects Debian 13 during LXC startup (sequence 7) on nodes with older pve-container packages.
 msg_info "Updating Proxmox LXC appliance template catalog (pveam update)"
 pveam update >/dev/null 2>&1 || true
 
-DEBIAN_TPL="$(pveam available -section system | awk '{print $2}' | grep -E '^debian-(12|13)-standard_' | sort -V | tail -n 1)"
+DEBIAN_TPL="$(pveam available -section system | awk '{print $2}' | grep -E "^debian-${CT_DEBIAN_VER}-standard_" | sort -V | tail -n 1 || true)"
 if [[ -z "${DEBIAN_TPL}" ]]; then
-  msg_err "Could not find a Debian 12/13 standard template in pveam."
+  DEBIAN_TPL="$(pveam available -section system | awk '{print $2}' | grep -E '^debian-12-standard_' | sort -V | tail -n 1 || true)"
+fi
+if [[ -z "${DEBIAN_TPL}" ]]; then
+  msg_err "Could not find a Debian standard template in pveam."
 fi
 
 if ! pveam list "${TEMPLATE_STORAGE}" 2>/dev/null | grep -q "${DEBIAN_TPL}"; then
@@ -169,9 +211,11 @@ if [[ "${CT_IP}" != "dhcp" && -n "${CT_GW}" ]]; then
   NET_CFG="${NET_CFG},gw=${CT_GW}"
 fi
 
-# 3. Create LXC Container
+# 3. Create LXC Container (without --start 1 so we can start and verify cleanly)
 msg_info "Creating LXC Container ${CT_ID} (${CT_HOSTNAME})"
 pct create "${CT_ID}" "${TEMPLATE_STORAGE}:vztmpl/${DEBIAN_TPL}" \
+  --arch amd64 \
+  --ostype debian \
   --hostname "${CT_HOSTNAME}" \
   --cores "${CT_CORES}" \
   --memory "${CT_RAM}" \
@@ -179,12 +223,25 @@ pct create "${CT_ID}" "${TEMPLATE_STORAGE}:vztmpl/${DEBIAN_TPL}" \
   --rootfs "${CT_STORAGE}:${CT_DISK}" \
   --net0 "${NET_CFG}" \
   --unprivileged "${CT_UNPRIVILEGED}" \
-  --features nesting=1,keyctl=1 \
-  --onboot 1 \
-  --start 1
-msg_ok "LXC Container ${CT_ID} created and started"
+  --features nesting=1 \
+  --onboot 1
+msg_ok "LXC Container ${CT_ID} created"
 
-# 4. Wait for network inside container
+# 4. Start LXC Container (with fallback if nesting=1 is rejected by host AppArmor/kernel)
+msg_info "Starting LXC Container ${CT_ID}"
+if ! pct start "${CT_ID}" 2>/tmp/nucmap_lxc_start.err; then
+  echo -e " ${INFO} ${YW}Initial start with nesting=1 failed; retrying without nesting feature...${CL}"
+  pct set "${CT_ID}" --delete features >/dev/null 2>&1 || true
+  if ! pct start "${CT_ID}"; then
+    cat /tmp/nucmap_lxc_start.err >&2 || true
+    lxc-start -n "${CT_ID}" -F -l ERROR -o /tmp/lxc-${CT_ID}.log >/dev/null 2>&1 || true
+    [[ -f "/tmp/lxc-${CT_ID}.log" ]] && tail -n 20 "/tmp/lxc-${CT_ID}.log" >&2 || true
+    msg_err "Failed to start container ${CT_ID}. See error log above."
+  fi
+fi
+msg_ok "LXC Container ${CT_ID} started"
+
+# 5. Wait for network inside container
 msg_info "Waiting for container network initialization"
 for _ in {1..20}; do
   if pct exec "${CT_ID}" -- hostname -I 2>/dev/null | grep -qE '[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+'; then
@@ -194,7 +251,7 @@ for _ in {1..20}; do
 done
 msg_ok "Container network is online"
 
-# 5. Provision NucMap inside the container
+# 6. Provision NucMap inside the container
 msg_info "Installing NucMap v${APP_VERSION} inside LXC ${CT_ID} (Nmap, Nuclei, Vulscan, Node.js)"
 pct exec "${CT_ID}" -- bash -c "apt-get update -y && apt-get install -y curl ca-certificates git"
 pct exec "${CT_ID}" -- bash -c "curl -fsSL ${REPO_RAW}/installer.sh | bash"
