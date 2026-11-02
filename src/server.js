@@ -84,7 +84,7 @@ app.use((req, res, next) => {
 app.use(express.json({ limit: '2mb' }));
 
 app.use((req, res, next) => {
-  if (req.path === '/app.js' || req.path.startsWith('/api')) {
+  if (req.path === '/' || req.path === '/index.html' || req.path === '/app.js' || req.path.startsWith('/api')) {
     res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
     res.setHeader('Pragma', 'no-cache');
     res.setHeader('Expires', '0');

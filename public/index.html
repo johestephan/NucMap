@@ -240,60 +240,78 @@
       </div>
     </div>
 
-    <!-- Navigation Tabs -->
-    <div class="border-b border-slate-800 mb-6 flex flex-wrap items-center justify-between gap-3">
-      <nav class="flex flex-wrap space-x-1 sm:space-x-2" aria-label="Tabs">
+    <!-- Navigation Tabs (Colored Register Cards / Registerkarten-Look) -->
+    <div class="border-b border-slate-800 mb-6 flex flex-wrap items-end justify-between gap-3">
+      <nav class="flex items-end gap-1 sm:gap-1.5 overflow-x-auto pt-2 pb-0 -mb-[1px]" aria-label="Tabs" id="main-register-nav">
+        <!-- Tab 1: Monitored Assets (Cyan Register Card) -->
         <button
           id="tab-btn-assets"
           onclick="switchTab('assets')"
-          class="tab-btn px-3.5 py-2.5 text-xs sm:text-sm font-semibold rounded-t-lg border-b-2 border-cyan-400 text-cyan-400 bg-slate-900/60 flex items-center gap-2 transition"
+          class="register-tab active group relative flex items-center gap-2 px-3.5 sm:px-4 py-2.5 text-xs sm:text-sm font-semibold rounded-t-xl transition-all duration-200 border-t-[3px] border-x border-b-0 -mb-[1px] bg-slate-900 border-cyan-400 border-slate-700/80 text-cyan-300 shadow-lg z-10"
         >
-          <span>1. Monitored Assets</span>
-          <span id="tab-badge-assets" class="px-2 py-0.5 text-xs rounded-full bg-slate-800 text-slate-300">0</span>
+          <span class="tab-dot w-2 h-2 rounded-full bg-cyan-400 shrink-0"></span>
+          <span class="tab-label-short hidden">1. Assets</span>
+          <span class="tab-label-full inline">1. Monitored Assets</span>
+          <span id="tab-badge-assets" class="px-1.5 py-0.5 text-[11px] font-mono rounded-full bg-cyan-500/15 text-cyan-300 border border-cyan-500/30">0</span>
         </button>
 
+        <!-- Tab 2: Active Scans & Results (Amber Register Card) -->
         <button
           id="tab-btn-active-scan"
           onclick="switchTab('active-scan')"
-          class="tab-btn px-3.5 py-2.5 text-xs sm:text-sm font-semibold rounded-t-lg border-b-2 border-transparent text-slate-400 hover:text-slate-200 flex items-center gap-2 transition"
+          class="register-tab group relative flex items-center gap-1.5 px-2.5 sm:px-3 py-2 text-xs sm:text-sm font-medium rounded-t-lg transition-all duration-200 border-t-2 border-x border-b-0 bg-slate-950/70 border-amber-500/40 border-slate-800/80 text-slate-400 hover:text-slate-200 hover:bg-slate-900/50"
         >
-          <span>2. Active Scans &amp; Results</span>
-          <span id="tab-badge-active" class="hidden w-2 h-2 rounded-full bg-cyan-400 animate-ping"></span>
+          <span class="tab-dot w-2 h-2 rounded-full bg-amber-400/50 group-hover:bg-amber-400 shrink-0"></span>
+          <span class="tab-label-short inline">2. Scans</span>
+          <span class="tab-label-full hidden">2. Active Scans &amp; Results</span>
+          <span id="tab-badge-active" class="hidden w-2 h-2 rounded-full bg-amber-400 animate-ping"></span>
         </button>
 
+        <!-- Tab 3: Drift / Diff Report (Indigo Register Card) -->
         <button
           id="tab-btn-diffs"
           onclick="switchTab('diffs')"
-          class="tab-btn px-3.5 py-2.5 text-xs sm:text-sm font-semibold rounded-t-lg border-b-2 border-transparent text-slate-400 hover:text-slate-200 flex items-center gap-2 transition"
+          class="register-tab group relative flex items-center gap-1.5 px-2.5 sm:px-3 py-2 text-xs sm:text-sm font-medium rounded-t-lg transition-all duration-200 border-t-2 border-x border-b-0 bg-slate-950/70 border-indigo-500/40 border-slate-800/80 text-slate-400 hover:text-slate-200 hover:bg-slate-900/50"
         >
-          <span>3. Drift / Diff Report</span>
-          <span id="tab-badge-diffs" class="px-2 py-0.5 text-xs rounded-full bg-slate-800 text-slate-300">0</span>
+          <span class="tab-dot w-2 h-2 rounded-full bg-indigo-400/50 group-hover:bg-indigo-400 shrink-0"></span>
+          <span class="tab-label-short inline">3. Drift</span>
+          <span class="tab-label-full hidden">3. Drift / Diff Report</span>
+          <span id="tab-badge-diffs" class="px-1.5 py-0.5 text-[11px] font-mono rounded-full bg-slate-800 text-slate-400">0</span>
         </button>
 
+        <!-- Tab 4: Scan Profiles & Ports (Emerald Register Card) -->
         <button
           id="tab-btn-profiles"
           onclick="switchTab('profiles')"
-          class="tab-btn px-3.5 py-2.5 text-xs sm:text-sm font-semibold rounded-t-lg border-b-2 border-transparent text-slate-400 hover:text-slate-200 flex items-center gap-2 transition"
+          class="register-tab group relative flex items-center gap-1.5 px-2.5 sm:px-3 py-2 text-xs sm:text-sm font-medium rounded-t-lg transition-all duration-200 border-t-2 border-x border-b-0 bg-slate-950/70 border-emerald-500/40 border-slate-800/80 text-slate-400 hover:text-slate-200 hover:bg-slate-900/50"
         >
-          <span>4. Scan Profiles &amp; Ports</span>
-          <span id="tab-badge-profiles" class="px-2 py-0.5 text-xs rounded-full bg-slate-800 text-slate-300">7</span>
+          <span class="tab-dot w-2 h-2 rounded-full bg-emerald-400/50 group-hover:bg-emerald-400 shrink-0"></span>
+          <span class="tab-label-short inline">4. Profiles</span>
+          <span class="tab-label-full hidden">4. Scan Profiles &amp; Ports</span>
+          <span id="tab-badge-profiles" class="px-1.5 py-0.5 text-[11px] font-mono rounded-full bg-slate-800 text-slate-400">7</span>
         </button>
 
+        <!-- Tab 5: Schedules, Alerts & Syslog (Purple Register Card) -->
         <button
           id="tab-btn-schedules"
           onclick="switchTab('schedules')"
-          class="tab-btn px-3.5 py-2.5 text-xs sm:text-sm font-semibold rounded-t-lg border-b-2 border-transparent text-slate-400 hover:text-slate-200 flex items-center gap-2 transition"
+          class="register-tab group relative flex items-center gap-1.5 px-2.5 sm:px-3 py-2 text-xs sm:text-sm font-medium rounded-t-lg transition-all duration-200 border-t-2 border-x border-b-0 bg-slate-950/70 border-purple-500/40 border-slate-800/80 text-slate-400 hover:text-slate-200 hover:bg-slate-900/50"
         >
-          <span>5. Schedules, Alerts &amp; Syslog</span>
+          <span class="tab-dot w-2 h-2 rounded-full bg-purple-400/50 group-hover:bg-purple-400 shrink-0"></span>
+          <span class="tab-label-short inline">5. Schedules</span>
+          <span class="tab-label-full hidden">5. Schedules &amp; Alerts</span>
         </button>
 
+        <!-- Tab 6: NucMap-scripts Library (Rose Register Card) -->
         <button
           id="tab-btn-scripts"
           onclick="switchTab('scripts')"
-          class="tab-btn px-3.5 py-2.5 text-xs sm:text-sm font-semibold rounded-t-lg border-b-2 border-transparent text-slate-400 hover:text-slate-200 flex items-center gap-2 transition"
+          class="register-tab group relative flex items-center gap-1.5 px-2.5 sm:px-3 py-2 text-xs sm:text-sm font-medium rounded-t-lg transition-all duration-200 border-t-2 border-x border-b-0 bg-slate-950/70 border-rose-500/40 border-slate-800/80 text-slate-400 hover:text-slate-200 hover:bg-slate-900/50"
         >
-          <span>6. NucMap-scripts Library</span>
-          <span id="tab-badge-scripts" class="px-2 py-0.5 text-xs rounded-full bg-cyan-500/20 text-cyan-300 border border-cyan-500/30">2</span>
+          <span class="tab-dot w-2 h-2 rounded-full bg-rose-400/50 group-hover:bg-rose-400 shrink-0"></span>
+          <span class="tab-label-short inline">6. Scripts</span>
+          <span class="tab-label-full hidden">6. NucMap Scripts</span>
+          <span id="tab-badge-scripts" class="px-1.5 py-0.5 text-[11px] font-mono rounded-full bg-rose-500/15 text-rose-300 border border-rose-500/30">2</span>
         </button>
       </nav>
 
@@ -343,6 +361,7 @@
               <input
                 type="text"
                 id="asset-filter-input"
+                autocomplete="off"
                 oninput="renderAssetsTable()"
                 placeholder="Search target, hostname, vendor, port, tag..."
                 class="w-full pl-8 pr-3 py-1.5 text-xs rounded-lg bg-slate-950 border border-slate-700/80 text-white placeholder-slate-500 focus:outline-none focus:border-cyan-500"
@@ -351,6 +370,7 @@
 
             <select
               id="asset-filter-tag"
+              autocomplete="off"
               onchange="renderAssetsTable()"
               class="px-2.5 py-1.5 text-xs rounded-lg bg-slate-950 border border-slate-700/80 text-slate-200 focus:outline-none focus:border-cyan-500"
             >
@@ -359,10 +379,11 @@
 
             <select
               id="asset-filter-vuln"
+              autocomplete="off"
               onchange="renderAssetsTable()"
               class="px-2.5 py-1.5 text-xs rounded-lg bg-slate-950 border border-slate-700/80 text-slate-200 focus:outline-none focus:border-cyan-500"
             >
-              <option value="all">All Security States</option>
+              <option value="all" selected>All Security States</option>
               <option value="has_vulns">Has Findings</option>
               <option value="crit_high">Critical / High Only</option>
               <option value="clean">Clean (0 Findings)</option>
@@ -370,10 +391,11 @@
 
             <select
               id="asset-filter-profile"
+              autocomplete="off"
               onchange="renderAssetsTable()"
               class="px-2.5 py-1.5 text-xs rounded-lg bg-slate-950 border border-slate-700/80 text-slate-200 focus:outline-none focus:border-cyan-500"
             >
-              <option value="all">All Profiles</option>
+              <option value="all" selected>All Profiles</option>
             </select>
 
             <button
@@ -1220,6 +1242,6 @@
     </div>
   </div>
 
-  <script src="/app.js?v=0.1.2.2"></script>
+  <script src="/app.js?v=0.1.2.3"></script>
 </body>
 </html>

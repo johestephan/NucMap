@@ -121,7 +121,65 @@ function scanStatusBadge(status) {
   return `<span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-[11px] font-semibold border ${item.cls}">${escapeHtml(item.label)}</span>`;
 }
 
-// Tab Switching
+// Register Tab Color Profiles (Colored Register Cards / Registerkarten-Look)
+const REGISTER_TAB_CONFIG = {
+  'assets': {
+    activeTopBorder: 'border-cyan-400',
+    activeText: 'text-cyan-300',
+    inactiveTopBorder: 'border-cyan-500/40',
+    activeDot: 'bg-cyan-400',
+    inactiveDot: 'bg-cyan-400/50',
+    activeBadge: 'bg-cyan-500/15 text-cyan-300 border border-cyan-500/30 font-mono',
+    inactiveBadge: 'bg-slate-800 text-slate-400 font-mono'
+  },
+  'active-scan': {
+    activeTopBorder: 'border-amber-400',
+    activeText: 'text-amber-300',
+    inactiveTopBorder: 'border-amber-500/40',
+    activeDot: 'bg-amber-400',
+    inactiveDot: 'bg-amber-400/50',
+    activeBadge: 'bg-amber-500/15 text-amber-300 border border-amber-500/30 font-mono',
+    inactiveBadge: 'bg-slate-800 text-slate-400 font-mono'
+  },
+  'diffs': {
+    activeTopBorder: 'border-indigo-400',
+    activeText: 'text-indigo-300',
+    inactiveTopBorder: 'border-indigo-500/40',
+    activeDot: 'bg-indigo-400',
+    inactiveDot: 'bg-indigo-400/50',
+    activeBadge: 'bg-indigo-500/15 text-indigo-300 border border-indigo-500/30 font-mono',
+    inactiveBadge: 'bg-slate-800 text-slate-400 font-mono'
+  },
+  'profiles': {
+    activeTopBorder: 'border-emerald-400',
+    activeText: 'text-emerald-300',
+    inactiveTopBorder: 'border-emerald-500/40',
+    activeDot: 'bg-emerald-400',
+    inactiveDot: 'bg-emerald-400/50',
+    activeBadge: 'bg-emerald-500/15 text-emerald-300 border border-emerald-500/30 font-mono',
+    inactiveBadge: 'bg-slate-800 text-slate-400 font-mono'
+  },
+  'schedules': {
+    activeTopBorder: 'border-purple-400',
+    activeText: 'text-purple-300',
+    inactiveTopBorder: 'border-purple-500/40',
+    activeDot: 'bg-purple-400',
+    inactiveDot: 'bg-purple-400/50',
+    activeBadge: 'bg-purple-500/15 text-purple-300 border border-purple-500/30 font-mono',
+    inactiveBadge: 'bg-slate-800 text-slate-400 font-mono'
+  },
+  'scripts': {
+    activeTopBorder: 'border-rose-400',
+    activeText: 'text-rose-300',
+    inactiveTopBorder: 'border-rose-500/40',
+    activeDot: 'bg-rose-400',
+    inactiveDot: 'bg-rose-400/50',
+    activeBadge: 'bg-rose-500/15 text-rose-300 border border-rose-500/30 font-mono',
+    inactiveBadge: 'bg-slate-800 text-slate-400 font-mono'
+  }
+};
+
+// Tab Switching (Register Card behavior: shortened when deselected, expanded header when selected)
 function switchTab(tabName) {
   state.activeTab = tabName;
   const tabs = ['assets', 'active-scan', 'diffs', 'profiles', 'schedules', 'scripts'];
@@ -129,14 +187,38 @@ function switchTab(tabName) {
     const panel = document.getElementById(`tab-panel-${t}`);
     const btn = document.getElementById(`tab-btn-${t}`);
     if (!panel || !btn) continue;
+    const cfg = REGISTER_TAB_CONFIG[t] || REGISTER_TAB_CONFIG['assets'];
+    const shortLabel = btn.querySelector('.tab-label-short');
+    const fullLabel = btn.querySelector('.tab-label-full');
+    const dot = btn.querySelector('.tab-dot');
+    const badge = document.getElementById(`tab-badge-${t}`);
+
     if (t === tabName) {
       panel.classList.remove('hidden');
-      btn.classList.add('border-cyan-400', 'text-cyan-400', 'bg-slate-900/60');
-      btn.classList.remove('border-transparent', 'text-slate-400');
+      btn.className = `register-tab active group relative flex items-center gap-2 px-3.5 sm:px-4 py-2.5 text-xs sm:text-sm font-semibold rounded-t-xl transition-all duration-200 border-t-[3px] border-x border-b-0 -mb-[1px] bg-slate-900 ${cfg.activeTopBorder} border-slate-700/80 ${cfg.activeText} shadow-lg z-10`;
+      if (shortLabel) {
+        shortLabel.classList.add('hidden');
+        shortLabel.classList.remove('inline');
+      }
+      if (fullLabel) {
+        fullLabel.classList.remove('hidden');
+        fullLabel.classList.add('inline');
+      }
+      if (dot) dot.className = `tab-dot w-2 h-2 rounded-full ${cfg.activeDot} shrink-0`;
+      if (badge && cfg.activeBadge) badge.className = `px-1.5 py-0.5 text-[11px] rounded-full ${cfg.activeBadge}`;
     } else {
       panel.classList.add('hidden');
-      btn.classList.remove('border-cyan-400', 'text-cyan-400', 'bg-slate-900/60');
-      btn.classList.add('border-transparent', 'text-slate-400');
+      btn.className = `register-tab group relative flex items-center gap-1.5 px-2.5 sm:px-3 py-2 text-xs sm:text-sm font-medium rounded-t-lg transition-all duration-200 border-t-2 border-x border-b-0 bg-slate-950/70 ${cfg.inactiveTopBorder} border-slate-800/80 text-slate-400 hover:text-slate-200 hover:bg-slate-900/50`;
+      if (shortLabel) {
+        shortLabel.classList.remove('hidden');
+        shortLabel.classList.add('inline');
+      }
+      if (fullLabel) {
+        fullLabel.classList.add('hidden');
+        fullLabel.classList.remove('inline');
+      }
+      if (dot) dot.className = `tab-dot w-2 h-2 rounded-full ${cfg.inactiveDot} group-hover:${cfg.activeDot} shrink-0`;
+      if (badge && cfg.inactiveBadge) badge.className = `px-1.5 py-0.5 text-[11px] rounded-full ${cfg.inactiveBadge}`;
     }
   }
 
@@ -290,6 +372,97 @@ async function fetchAssets() {
   }
 }
 
+function updateOverviewStats() {
+  const assets = state.assets || [];
+  const totalAssets = assets.length;
+  let totalPorts = 0;
+  let critHigh = 0;
+
+  for (const a of assets) {
+    totalPorts += a.open_port_count !== undefined ? a.open_port_count : ((a.open_ports || []).length);
+    if (a.vuln_counts) {
+      critHigh += (a.vuln_counts.critical || 0) + (a.vuln_counts.high || 0);
+    }
+  }
+
+  const statAssets = document.getElementById('stat-total-assets');
+  if (statAssets) statAssets.textContent = String(totalAssets);
+
+  const statPorts = document.getElementById('stat-total-ports');
+  if (statPorts) statPorts.textContent = String(totalPorts);
+
+  const statVulns = document.getElementById('stat-crit-high-vulns');
+  if (statVulns) statVulns.textContent = String(critHigh);
+
+  const statDiffs = document.getElementById('stat-total-diffs');
+  if (statDiffs) statDiffs.textContent = String((state.diffs || []).length);
+
+  const tabBadgeAssets = document.getElementById('tab-badge-assets');
+  if (tabBadgeAssets) tabBadgeAssets.textContent = String(totalAssets);
+
+  const tabBadgeDiffs = document.getElementById('tab-badge-diffs');
+  if (tabBadgeDiffs) tabBadgeDiffs.textContent = String((state.diffs || []).length);
+}
+
+function toggleAssetSelection(target, checked) {
+  if (checked) {
+    state.selectedAssetTargets.add(target);
+  } else {
+    state.selectedAssetTargets.delete(target);
+  }
+  updateSelectedAssetsButton();
+}
+
+function toggleSelectAllAssets(checked) {
+  const selectAllCheckbox = document.getElementById('select-all-assets');
+  const shouldSelect = checked !== undefined ? checked : (selectAllCheckbox ? selectAllCheckbox.checked : false);
+  if (shouldSelect) {
+    for (const a of state.assets || []) {
+      state.selectedAssetTargets.add(a.target);
+    }
+  } else {
+    state.selectedAssetTargets.clear();
+  }
+  renderAssetsTable();
+  updateSelectedAssetsButton();
+}
+
+function updateSelectedAssetsButton() {
+  const btn = document.getElementById('btn-scan-selected');
+  if (!btn) return;
+  const count = state.selectedAssetTargets.size;
+  if (count > 0) {
+    btn.classList.remove('hidden');
+    btn.textContent = `Scan Selected (${count} Host${count === 1 ? '' : 's'})`;
+  } else {
+    btn.classList.add('hidden');
+  }
+}
+
+async function scanSelectedAssets() {
+  const targets = Array.from(state.selectedAssetTargets);
+  if (targets.length === 0) return;
+  const profile = document.getElementById('scan-profile-select')?.value || 'standard';
+  const concurrency = Math.min(5, Math.max(1, Number(document.getElementById('global-concurrency-select')?.value || 3)));
+  showToast(`Queueing batch scan for ${targets.length} hosts...`, 'info');
+  try {
+    for (const target of targets) {
+      await fetch('/api/scan', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ target, profile, save_asset: true, concurrency })
+      });
+    }
+    state.selectedAssetTargets.clear();
+    updateSelectedAssetsButton();
+    renderAssetsTable();
+    showToast(`Successfully queued ${targets.length} scans!`, 'success');
+    switchTab('active-scan');
+  } catch (err) {
+    showToast(err.message, 'error');
+  }
+}
+
 function populateAssetFilterDropdowns() {
   const tagSelect = document.getElementById('asset-filter-tag');
   const profSelect = document.getElementById('asset-filter-profile');
@@ -367,6 +540,14 @@ function resetAssetFilters() {
   renderAssetsTable();
 }
 
+function parseDateMs(dateStr) {
+  if (!dateStr) return 0;
+  const normalized = dateStr.includes('T') ? dateStr : dateStr.replace(' ', 'T') + 'Z';
+  const d = new Date(normalized);
+  const t = d.getTime();
+  return Number.isNaN(t) ? 0 : t;
+}
+
 function parseIpv4Numeric(targetStr) {
   if (!targetStr) return null;
   const ipOnly = targetStr.split('/')[0].trim();
@@ -390,136 +571,145 @@ function getAssetVulnScore(asset) {
 }
 
 function renderAssetsTable() {
-  const tbody = document.getElementById('assets-table-body');
-  const countLabel = document.getElementById('asset-table-count-label');
-  const resetBtn = document.getElementById('btn-reset-asset-filters');
+  try {
+    const tbody = document.getElementById('assets-table-body');
+    if (!tbody) return;
+    const countLabel = document.getElementById('asset-table-count-label');
+    const resetBtn = document.getElementById('btn-reset-asset-filters');
 
-  const textFilter = (document.getElementById('asset-filter-input')?.value || '').toLowerCase().trim();
-  const tagFilter = document.getElementById('asset-filter-tag')?.value || 'all';
-  const vulnFilter = document.getElementById('asset-filter-vuln')?.value || 'all';
-  const profFilter = document.getElementById('asset-filter-profile')?.value || 'all';
+    const textFilter = (document.getElementById('asset-filter-input')?.value || '').toLowerCase().trim();
+    const tagFilter = document.getElementById('asset-filter-tag')?.value || 'all';
+    const vulnFilter = document.getElementById('asset-filter-vuln')?.value || 'all';
+    const profFilter = document.getElementById('asset-filter-profile')?.value || 'all';
 
-  const isFiltered = textFilter || tagFilter !== 'all' || vulnFilter !== 'all' || profFilter !== 'all';
-  if (resetBtn) {
-    if (isFiltered) {
-      resetBtn.classList.remove('hidden');
-    } else {
-      resetBtn.classList.add('hidden');
-    }
-  }
-
-  const filtered = state.assets.filter((a) => {
-    // 1. Text filter
-    if (textFilter) {
-      const targetMatch = (a.target || '').toLowerCase().includes(textFilter);
-      const hostMatch = (a.hostname || '').toLowerCase().includes(textFilter);
-      const vendorMatch = (a.vendor || '').toLowerCase().includes(textFilter);
-      const macMatch = (a.mac_address || '').toLowerCase().includes(textFilter);
-      const tagMatch = (a.tags || []).some((t) => t.toLowerCase().includes(textFilter));
-      const portMatch = (a.open_ports || []).some(
-        (p) =>
-          String(p.port).includes(textFilter) ||
-          (p.service_name || '').toLowerCase().includes(textFilter) ||
-          (p.service_product || '').toLowerCase().includes(textFilter)
-      );
-      if (!targetMatch && !hostMatch && !vendorMatch && !macMatch && !tagMatch && !portMatch) {
-        return false;
-      }
-    }
-
-    // 2. Tag filter
-    if (tagFilter !== 'all') {
-      const hasTag = (a.tags || []).some((t) => t.toLowerCase() === tagFilter.toLowerCase());
-      if (!hasTag) return false;
-    }
-
-    // 3. Vulnerability status filter
-    if (vulnFilter !== 'all') {
-      const vc = a.vuln_counts || {};
-      const critHigh = (vc.critical || 0) + (vc.high || 0);
-      const total = vc.total || 0;
-      if (vulnFilter === 'has_vulns' && total === 0) return false;
-      if (vulnFilter === 'crit_high' && critHigh === 0) return false;
-      if (vulnFilter === 'clean' && total > 0) return false;
-    }
-
-    // 4. Scan profile filter
-    if (profFilter !== 'all') {
-      if ((a.default_profile || 'standard').toLowerCase() !== profFilter.toLowerCase()) {
-        return false;
-      }
-    }
-
-    return true;
-  });
-
-  // Apply sorting
-  if (!state.assetSort) {
-    state.assetSort = { column: 'target', order: 'asc' };
-  }
-  const { column = 'target', order = 'asc' } = state.assetSort;
-  filtered.sort((a, b) => {
-    let cmp = 0;
-    if (column === 'target') {
-      const numA = parseIpv4Numeric(a.target);
-      const numB = parseIpv4Numeric(b.target);
-      if (numA !== null && numB !== null) {
-        cmp = numA - numB;
-      } else if (numA !== null) {
-        cmp = -1;
-      } else if (numB !== null) {
-        cmp = 1;
+    const isFiltered = textFilter || tagFilter !== 'all' || vulnFilter !== 'all' || profFilter !== 'all';
+    if (resetBtn) {
+      if (isFiltered) {
+        resetBtn.classList.remove('hidden');
       } else {
-        cmp = (a.target || '').localeCompare(b.target || '');
+        resetBtn.classList.add('hidden');
       }
-    } else if (column === 'vendor') {
-      const vA = (a.vendor || a.mac_address || '').toLowerCase();
-      const vB = (b.vendor || b.mac_address || '').toLowerCase();
-      cmp = vA.localeCompare(vB);
-    } else if (column === 'ports') {
-      const cntA = a.open_port_count !== undefined ? a.open_port_count : (a.open_ports || []).length;
-      const cntB = b.open_port_count !== undefined ? b.open_port_count : (b.open_ports || []).length;
-      cmp = cntA - cntB;
-    } else if (column === 'vulns') {
-      const scA = getAssetVulnScore(a);
-      const scB = getAssetVulnScore(b);
-      cmp = scA - scB;
-    } else if (column === 'last_scanned') {
-      const timeA = a.last_scanned_at ? new Date(a.last_scanned_at).getTime() : 0;
-      const timeB = b.last_scanned_at ? new Date(b.last_scanned_at).getTime() : 0;
-      cmp = timeA - timeB;
     }
-    return order === 'asc' ? cmp : -cmp;
-  });
 
-  if (countLabel) {
-    countLabel.textContent = isFiltered
-      ? `${filtered.length} of ${state.assets.length} assets`
-      : `${state.assets.length} asset${state.assets.length === 1 ? '' : 's'}`;
-  }
+    const allAssets = state.assets || [];
+    const filtered = allAssets.filter((a) => {
+      // 1. Text filter
+      if (textFilter) {
+        const targetMatch = (a.target || '').toLowerCase().includes(textFilter);
+        const hostMatch = (a.hostname || '').toLowerCase().includes(textFilter);
+        const vendorMatch = (a.vendor || '').toLowerCase().includes(textFilter);
+        const macMatch = (a.mac_address || '').toLowerCase().includes(textFilter);
+        const tagMatch = (a.tags || []).some((t) => t.toLowerCase().includes(textFilter));
+        const portMatch = (a.open_ports || []).some(
+          (p) =>
+            String(p.port).includes(textFilter) ||
+            (p.service_name || '').toLowerCase().includes(textFilter) ||
+            (p.service_product || '').toLowerCase().includes(textFilter)
+        );
+        if (!targetMatch && !hostMatch && !vendorMatch && !macMatch && !tagMatch && !portMatch) {
+          return false;
+        }
+      }
 
-  if (filtered.length === 0) {
-    tbody.innerHTML = `
-      <tr>
-        <td colspan="7" class="px-5 py-12 text-center text-slate-400">
-          <div class="max-w-md mx-auto space-y-2">
-            <p class="font-semibold text-slate-200">${isFiltered ? 'No assets match the active filter' : 'No monitored assets found'}</p>
-            <p class="text-xs text-slate-400">${
-              isFiltered
-                ? 'Try adjusting your search query, tag, or security filter above.'
-                : 'Click "Discover Subnet" to sweep your LAN, or enter targets in the Quick Scan bar above.'
-            }</p>
-            ${
-              isFiltered
-                ? `<button onclick="resetAssetFilters()" class="mt-2 px-3 py-1 rounded-lg text-xs font-semibold bg-cyan-500/20 text-cyan-300 border border-cyan-500/30">Clear Active Filters</button>`
-                : ''
-            }
-          </div>
-        </td>
-      </tr>
-    `;
-    return;
-  }
+      // 2. Tag filter
+      if (tagFilter !== 'all') {
+        const hasTag = (a.tags || []).some((t) => t.toLowerCase() === tagFilter.toLowerCase());
+        if (!hasTag) return false;
+      }
+
+      // 3. Vulnerability status filter
+      if (vulnFilter !== 'all') {
+        const vc = a.vuln_counts || {};
+        const critHigh = (vc.critical || 0) + (vc.high || 0);
+        const total = vc.total || 0;
+        if (vulnFilter === 'has_vulns' && total === 0) return false;
+        if (vulnFilter === 'crit_high' && critHigh === 0) return false;
+        if (vulnFilter === 'clean' && total > 0) return false;
+      }
+
+      // 4. Scan profile filter
+      if (profFilter !== 'all') {
+        if ((a.default_profile || 'standard').toLowerCase() !== profFilter.toLowerCase()) {
+          return false;
+        }
+      }
+
+      return true;
+    });
+
+    // Apply sorting
+    if (!state.assetSort) {
+      state.assetSort = { column: 'target', order: 'asc' };
+    }
+    const { column = 'target', order = 'asc' } = state.assetSort;
+    filtered.sort((a, b) => {
+      let cmp = 0;
+      if (column === 'target') {
+        const numA = parseIpv4Numeric(a.target);
+        const numB = parseIpv4Numeric(b.target);
+        if (numA !== null && numB !== null) {
+          cmp = numA - numB;
+        } else if (numA !== null) {
+          cmp = -1;
+        } else if (numB !== null) {
+          cmp = 1;
+        } else {
+          cmp = (a.target || '').localeCompare(b.target || '');
+        }
+      } else if (column === 'vendor') {
+        const vA = (a.vendor || a.mac_address || '').toLowerCase();
+        const vB = (b.vendor || b.mac_address || '').toLowerCase();
+        cmp = vA.localeCompare(vB);
+      } else if (column === 'ports') {
+        const cntA = a.open_port_count !== undefined ? a.open_port_count : (a.open_ports || []).length;
+        const cntB = b.open_port_count !== undefined ? b.open_port_count : (b.open_ports || []).length;
+        cmp = cntA - cntB;
+      } else if (column === 'vulns') {
+        const scA = getAssetVulnScore(a);
+        const scB = getAssetVulnScore(b);
+        cmp = scA - scB;
+      } else if (column === 'last_scanned') {
+        const timeA = parseDateMs(a.last_scanned_at);
+        const timeB = parseDateMs(b.last_scanned_at);
+        cmp = timeA - timeB;
+      }
+      return order === 'asc' ? cmp : -cmp;
+    });
+
+    if (countLabel) {
+      countLabel.textContent = isFiltered
+        ? `${filtered.length} of ${allAssets.length} assets`
+        : `${allAssets.length} asset${allAssets.length === 1 ? '' : 's'}`;
+    }
+
+    const selectAllCheckbox = document.getElementById('select-all-assets');
+    if (selectAllCheckbox) {
+      selectAllCheckbox.checked =
+        filtered.length > 0 && filtered.every((a) => state.selectedAssetTargets.has(a.target));
+    }
+
+    if (filtered.length === 0) {
+      tbody.innerHTML = `
+        <tr>
+          <td colspan="7" class="px-5 py-12 text-center text-slate-400">
+            <div class="max-w-md mx-auto space-y-2">
+              <p class="font-semibold text-slate-200">${isFiltered ? 'No assets match the active filter' : 'No monitored assets found'}</p>
+              <p class="text-xs text-slate-400">${
+                isFiltered
+                  ? 'Try adjusting your search query, tag, or security filter above.'
+                  : 'Click "Discover Subnet" to sweep your LAN, or enter targets in the Quick Scan bar above.'
+              }</p>
+              ${
+                isFiltered
+                  ? `<button onclick="resetAssetFilters()" class="mt-2 px-3 py-1 rounded-lg text-xs font-semibold bg-cyan-500/20 text-cyan-300 border border-cyan-500/30">Clear Active Filters</button>`
+                  : ''
+              }
+            </div>
+          </td>
+        </tr>
+      `;
+      return;
+    }
 
   tbody.innerHTML = filtered
     .map((asset) => {
@@ -681,6 +871,13 @@ function renderAssetsTable() {
       `;
     })
     .join('');
+  } catch (err) {
+    console.error('Error rendering assets table:', err);
+    const tbody = document.getElementById('assets-table-body');
+    if (tbody) {
+      tbody.innerHTML = `<tr><td colspan="7" class="px-5 py-8 text-center text-rose-400">Error rendering assets: ${escapeHtml(err.message)}</td></tr>`;
+    }
+  }
 }
 
 // Subnet Host Discovery Wizard (Modal 4)
